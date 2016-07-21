@@ -9,6 +9,7 @@
 #include "streamstory.h"
 
 using namespace TMc;
+using namespace TSsConstants;
 
 ///////////////////////////////////////////////
 // Feature information
@@ -494,28 +495,28 @@ void TStateIdentifier::GetGlobalTimeHistogram(const TAggState& AggState, TUInt64
 	}
 }
 
-void TStateIdentifier::GetTimeHistogram(const TAggState& AggState, const TTmHistType& HistType,
+void TStateIdentifier::GetTimeHistogram(const TAggState& AggState, const TTmGran& TmGran,
 		TIntV& BinValV, TFltV& BinV) const {
 
 	for (int StateN = 0; StateN < AggState.Len(); StateN++) {
 		const int& StateId = AggState[StateN];
 
 		const THistogram* Hist;
-		switch (HistType) {
-		case thtYear:
+		switch (TmGran) {
+		case tgYear:
 			Hist = &StateYearHistV[StateId];
 			break;
-		case thtMonth:
+		case tgMonth:
 			Hist = &StateMonthHistV[StateId];
 			break;
-		case thtWeek:
+		case tgWeek:
 			Hist = &StateWeekHistV[StateId];
 			break;
-		case thtDay:
+		case tgDay:
 			Hist = &StateDayHistV[StateId];
 			break;
 		default:
-			throw TExcept::New("Unknown histogram type: " + TInt::GetStr(HistType));
+			throw TExcept::New("Unknown time granularity: " + TInt::GetStr(TmGran));
 		}
 
 		if (BinV.Len() != Hist->GetBins()) { BinV.Gen(Hist->GetBins()); }
@@ -1527,35 +1528,7 @@ void TCtMChain::GetSubChain(const TFltVV& QMat, const TIntV& StateIdV, TFltVV& S
 		if (RowSum != 0.0) {
 			SubQMat(RowN,RowN) = -RowSum;
 		}
-//		else {	// edge case, add eps to all transitions
-//			for (int ColN = 0; ColN < SubMatDim; ColN++) {
-//				if (RowN != ColN) {
-//					SubQMat(RowN, ColN) = Eps;
-//				}
-//			}
-//			SubQMat(RowN,RowN) = -(SubMatDim-1)*Eps;
-//		}
 	}
-
-//	// check if any of the states is inaccessible
-//	for (int ColN = 0; ColN < SubMatDim; ColN++) {
-//		double ColSum = 0;
-//
-//		for (int RowN = 0; RowN < SubMatDim; RowN++) {
-//			if (RowN != ColN) {
-//				ColSum += SubQMat(RowN, ColN);
-//			}
-//		}
-//
-//		if (ColSum == 0) {
-//			for (int RowN = 0; RowN < SubMatDim; RowN++) {
-//				if (RowN != ColN) {
-//					SubQMat(RowN, ColN) = Eps;
-//					SubQMat(RowN, RowN) -= Eps;
-//				}
-//			}
-//		}
-//	}
 }
 
 void TCtMChain::BiPartition(const TFltVV& QMat, const TFltV& ProbV, TIntV& PartV) {
@@ -1566,7 +1539,6 @@ void TCtMChain::BiPartition(const TFltVV& QMat, const TFltV& ProbV, TIntV& PartV
 
 	// calculate the symmetrized laplacian Qs = (Pi*Q + Q'*Pi) / 2
 	// the stationary distribution
-//	TFltV ProbV;	GetStatDistV(QMat, ProbV);
 
 	TFltVV QSim(Dim, Dim);
 	for (int RowN = 0; RowN < Dim; RowN++) {
@@ -2769,6 +2741,7 @@ THierarch::THierarch(const bool& _HistCacheSize, const bool& _IsTransitionBased,
 		HistCacheSize(_HistCacheSize),
 		PastStateIdV(),
 		HierarchHistoryVV(),
+		ScaleWeeklyStateJumpTrVV(),
 		NLeafs(0),
 		StateNmV(),
 		StateLabelV(),
@@ -2789,6 +2762,7 @@ THierarch::THierarch(TSIn& SIn):
 		HistCacheSize(TInt(SIn)),
 		PastStateIdV(SIn),
 		HierarchHistoryVV(SIn),
+		ScaleWeeklyStateJumpTrVV(SIn),
 		NLeafs(TInt(SIn)),
 		StateNmV(SIn),
 		StateLabelV(SIn),
@@ -2810,6 +2784,7 @@ void THierarch::Save(TSOut& SOut) const {
 	TInt(HistCacheSize).Save(SOut);
 	PastStateIdV.Save(SOut);
 	HierarchHistoryVV.Save(SOut);
+	ScaleWeeklyStateJumpTrVV.Save(SOut);
 	TInt(NLeafs).Save(SOut);
 	StateNmV.Save(SOut);
 	StateLabelV.Save(SOut);
@@ -2873,6 +2848,7 @@ void THierarch::Init(const TUInt64V& RecTmV, const TFltVV& ObsFtrVV, const int& 
 
 	// init the hierarchy history
 	InitHistHierarch(RecTmV, ObsFtrVV, StateIdentifier);
+	InitHistTmGran(RecTmV, ObsFtrVV, StateIdentifier);
 }
 
 void THierarch::UpdateHistory(const int& CurrLeafId) {
@@ -3191,6 +3167,30 @@ void THierarch::GetStateHistory(TVec<TPair<TFlt, TUInt64IntPrV>>& ScaleTmIdPrPrV
 
         ScaleTmIdPrPrV[ScaleN].Val1 = Scale;
         GetStateHistory(Scale, ScaleTmIdPrPrV[ScaleN].Val2);
+    }
+}
+
+void THierarch::GetStateHistoryTmGran(const double& Scale, const TTmGran& TmGran,
+        TVec<TIdNextIdTmGranCountH>& HistTmGran) const {
+    const int ScaleN = GetUiScaleN(Scale);
+
+    switch (TmGran) {
+    case tgDay: {
+        throw TExcept::New("Granularity day not implemented!");
+        break;
+    }
+    case tgWeek: {
+        HistTmGran = ScaleWeeklyStateJumpTrVV[ScaleN];
+        break;
+    }
+    case tgMonth: {
+        throw TExcept::New("Granularity month not implemented!");
+        break;
+    }
+    case tgYear: {
+        throw TExcept::New("Granularity year not implemented!");
+        break;
+    }
     }
 }
 
@@ -3577,6 +3577,84 @@ void THierarch::InitHistHierarch(const TUInt64V& RecTmV, const TFltVV& FtrVV,
     }
 }
 
+void THierarch::InitHistTmGran(const TUInt64V& RecTmV, const TFltVV& FtrVV,
+            const TStateIdentifier& StateIdentifier) {
+    const TFltV& ScaleV = GetUiHeightV();
+    TIntV AssignV;  StateIdentifier.Assign(RecTmV, FtrVV, AssignV);
+
+    const int NScales = ScaleV.Len();
+    const int NRecs = RecTmV.Len();
+
+    EAssertR(!RecTmV.Empty(), "No records, cannot construct periodic history!");
+    EAssertR(!AssignV.Empty(), "No assigned records, cannot construct periodic history!");
+
+    // initialize
+    ScaleWeeklyStateJumpTrVV.Gen(NScales);
+    TUInt64IntPrV LastScaleJumpTmIdV(NScales, NScales);
+
+    {
+        for (int ScaleN = 0; ScaleN < NScales; ScaleN++) {
+            LastScaleJumpTmIdV[ScaleN].Val1 = TUInt64::Mx;
+            LastScaleJumpTmIdV[ScaleN].Val2 = -1;
+
+            ScaleWeeklyStateJumpTrVV[ScaleN].Gen(7);
+        }
+    }
+
+    for (int RecN = 0; RecN < NRecs; RecN++) {
+        const int& LeafId = AssignV[RecN];
+        const uint64& RecTm = RecTmV[RecN];
+
+        for (int ScaleN = 0; ScaleN < NScales; ScaleN++) {
+            const double& Scale = ScaleV[ScaleN];
+            TUInt64IntPr& LastStateIdTmPr = LastScaleJumpTmIdV[ScaleN];
+
+            const int StateId = GetAncestorAtHeight(LeafId, Scale);
+            const int PrevStateId = LastStateIdTmPr.Val2;
+
+            if (StateId == PrevStateId) { break; }
+
+            if (PrevStateId != -1) {
+                TVec<TIdNextIdTmGranCountH>& WeeklyStateJumpTrVV = ScaleWeeklyStateJumpTrVV[ScaleN];
+                // we have jumped on this scale
+                // parse the time stamp
+
+                // get the day of week
+                const TTm PrevJumpTm = TTm::GetTmFromMSecs(LastStateIdTmPr.Val1);
+                const TTm CurrJumpTm = TTm::GetTmFromMSecs(RecTm);
+
+                // extract day of week jumps
+                {
+                    const int PrevDayOfWeek = PrevJumpTm.GetDaysSinceMonday();
+                    const int CurrDayOfWeek = CurrJumpTm.GetDaysSinceMonday();
+
+                    TIdNextIdTmGranCountH& PrevDayOfWeekJumpH = WeeklyStateJumpTrVV[PrevDayOfWeek];
+
+                    if (!PrevDayOfWeekJumpH.IsKey(PrevStateId)) { PrevDayOfWeekJumpH.AddDat(PrevStateId); }
+                    THash<TIntPr, TUInt64>& PrevStateJumpH = PrevDayOfWeekJumpH.GetDat(PrevStateId);
+
+                    TIntPr JumpDefPr(StateId, CurrDayOfWeek);
+                    if (!PrevStateJumpH.IsKey(JumpDefPr)) { PrevStateJumpH.AddDat(JumpDefPr, 0); }
+
+                    PrevStateJumpH.GetDat(JumpDefPr)++;
+                }
+            }
+
+            LastStateIdTmPr.Val1 = RecTm;
+            LastStateIdTmPr.Val2 = StateId;
+        }
+    }
+}
+
+double THierarch::GetNextUiHeight(const double& Height) const {
+    const TFltV& UiHeightV = GetUiHeightV();
+    int HeightN = 0;
+    while (HeightN < UiHeightV.Len() && UiHeightV[HeightN] <= Height) {
+        HeightN++;
+    }
+    return UiHeightV[HeightN];
+}
+
 bool THierarch::IsRoot(const int& StateId, const TIntV& HierarchV) {
 	return GetParentId(StateId, HierarchV) == StateId;
 }
@@ -3787,92 +3865,6 @@ const double TUiHelper::STATE_OCCUPANCY_PERC = .5;	// too much, but let's see
 const double TUiHelper::LOW_PVAL_THRESHOLD = .25;
 const double TUiHelper::LOWEST_PVAL_THRESHOLD = .125;
 const double TUiHelper::STATE_LOW_PVAL_THRESHOLD = .4;
-
-const TStr TUiHelper::MONTHS[] = {
-		"January",
-		"February",
-		"March",
-		"April",
-		"May",
-		"June",
-		"July",
-		"August",
-		"September",
-		"October",
-		"November",
-		"December"
-};
-
-const TStr TUiHelper::DAYS_IN_MONTH[] = {
-		"1st",
-		"2nd",
-		"3rd",
-		"4th",
-		"5th",
-		"6th",
-		"7th",
-		"8th",
-		"9th",
-		"10th",
-		"11th",
-		"12th",
-		"13th",
-		"14th",
-		"15th",
-		"16th",
-		"17th",
-		"18th",
-		"19th",
-		"20th",
-		"21st",
-		"22nd",
-		"23rd",
-		"24th",
-		"25th",
-		"26th",
-		"27th",
-		"28th",
-		"29th",
-		"30th",
-		"31th"
-};
-
-const TStr TUiHelper::HOURS_IN_DAY[] = {
-		"Midnight",
-		"1AM",
-		"2AM",
-		"3AM",
-		"4AM",
-		"5AM",
-		"6AM",
-		"7AM",
-		"8AM",
-		"9AM",
-		"10AM",
-		"11AM",
-		"Noon",
-		"1PM",
-		"2PM",
-		"3PM",
-		"4PM",
-		"5PM",
-		"6PM",
-		"7PM",
-		"8PM",
-		"9PM",
-		"10PM",
-		"11PM"
-};
-
-const TStr TUiHelper::DAYS_IN_WEEK[] = {
-		"Monday",
-		"Tuesday",
-		"Wednesday",
-		"Thursday",
-		"Friday",
-		"Saturday",
-		"Sunday"
-};
 
 TUiHelper::TUiHelper(const TRnd& _Rnd, const bool& _Verbose):
 		StateCoordV(),
@@ -4345,10 +4337,10 @@ void TUiHelper::InitStateExplain(const TStreamStory& StreamStory) {
 		TFltV WeekBinV;
 		TFltV DayBinV;
 
-		StateIdentifier.GetTimeHistogram(LeafV, TStateIdentifier::TTmHistType::thtYear, YearBinValV, YearBinV);
-		StateIdentifier.GetTimeHistogram(LeafV, TStateIdentifier::TTmHistType::thtMonth, MonthBinValV, MonthBinV);
-		StateIdentifier.GetTimeHistogram(LeafV, TStateIdentifier::TTmHistType::thtWeek, WeekBinValV, WeekBinV);
-		StateIdentifier.GetTimeHistogram(LeafV, TStateIdentifier::TTmHistType::thtDay, DayBinValV, DayBinV);
+		StateIdentifier.GetTimeHistogram(LeafV, TTmGran::tgYear, YearBinValV, YearBinV);
+		StateIdentifier.GetTimeHistogram(LeafV, TTmGran::tgMonth, MonthBinValV, MonthBinV);
+		StateIdentifier.GetTimeHistogram(LeafV, TTmGran::tgWeek, WeekBinValV, WeekBinV);
+		StateIdentifier.GetTimeHistogram(LeafV, TTmGran::tgDay, DayBinValV, DayBinV);
 
 		TTmDescV& StateTmDescV = StateIdOccTmDescV[StateId];
 
@@ -4356,25 +4348,25 @@ void TUiHelper::InitStateExplain(const TStreamStory& StreamStory) {
 			Notify->OnNotifyFmt(ntInfo, "State %d has daily peaks!", StateId);
 			Notify->OnNotifyFmt(ntInfo, TStrUtil::GetStr(DayBinV, ", ", "%.5f").CStr());
 
-			StateTmDescV.Add(TTmDesc(TStateIdentifier::TTmHistType::thtDay, PeakStartEndV[0].Val1, PeakStartEndV[0].Val2));
+			StateTmDescV.Add(TTmDesc(TTmGran::tgDay, PeakStartEndV[0].Val1, PeakStartEndV[0].Val2));
 		}
 		if (TmUnit < TCtmcModeller::TU_MONTH && HasMxPeaks(MxPeaks, MnSupport, WeekBinV, PeakStartEndV, PeakMass, PeakBinCount)) {
 			Notify->OnNotifyFmt(ntInfo, "State %d has weekly peaks!", StateId);
 			Notify->OnNotifyFmt(ntInfo, TStrUtil::GetStr(WeekBinV, ", ", "%.5f").CStr());
 
-			StateTmDescV.Add(TTmDesc(TStateIdentifier::TTmHistType::thtWeek, PeakStartEndV[0].Val1, PeakStartEndV[0].Val2));
+			StateTmDescV.Add(TTmDesc(TTmGran::tgWeek, PeakStartEndV[0].Val1, PeakStartEndV[0].Val2));
 		}
 		if (TmUnit < TCtmcModeller::TU_MONTH && HasMxPeaks(MxPeaks, MnSupport, MonthBinV, PeakStartEndV, PeakMass, PeakBinCount)) {
 			Notify->OnNotifyFmt(ntInfo, "State %d has monthly peaks!", StateId);
 			Notify->OnNotifyFmt(ntInfo, TStrUtil::GetStr(MonthBinV, ", ", "%.5f").CStr());
 
-			StateTmDescV.Add(TTmDesc(TStateIdentifier::TTmHistType::thtMonth, PeakStartEndV[0].Val1, PeakStartEndV[0].Val2));
+			StateTmDescV.Add(TTmDesc(TTmGran::tgMonth, PeakStartEndV[0].Val1, PeakStartEndV[0].Val2));
 		}
 		if (HasMxPeaks(MxPeaks, MnSupport, YearBinV, PeakStartEndV, PeakMass, PeakBinCount)) {
 			Notify->OnNotifyFmt(ntInfo, "State %d has yearly peaks!", StateId);
 			Notify->OnNotifyFmt(ntInfo, TStrUtil::GetStr(YearBinV, ", ", "%.5f").CStr());
 
-			StateTmDescV.Add(TTmDesc(TStateIdentifier::TTmHistType::thtYear, PeakStartEndV[0].Val1, PeakStartEndV[0].Val2));
+			StateTmDescV.Add(TTmDesc(TTmGran::tgYear, PeakStartEndV[0].Val1, PeakStartEndV[0].Val2));
 		}
 
 		Notify->OnNotifyFmt(ntInfo, "Got %d explanations for state %d!", StateTmDescV.Len(), StateId);
@@ -4434,10 +4426,10 @@ void TUiHelper::GetTmDesc(const int& StateId, TTmDescV& DescV) const {
 }
 
 void TUiHelper::GetTimeDescStr(const TTmDesc& Desc, TStrPr& StrDesc) {
-	const TStateIdentifier::TTmHistType HistTmScale = (TStateIdentifier::TTmHistType) ((uchar) Desc.Val1);
+	const TTmGran HistTmScale = (TTmGran) ((int) Desc.Val1);
 
 	switch (HistTmScale) {
-	case TStateIdentifier::TTmHistType::thtYear: {
+	case TTmGran::tgYear: {
 		const int& StartMonth = Desc.Val2;
 		const int& EndMonth = Desc.Val3;
 
@@ -4449,7 +4441,7 @@ void TUiHelper::GetTimeDescStr(const TTmDesc& Desc, TStrPr& StrDesc) {
 
 		break;
 	}
-	case TStateIdentifier::TTmHistType::thtMonth: {
+	case TTmGran::tgMonth: {
 		const int& StartDay = Desc.Val2;
 		const int& EndDay = Desc.Val3;
 
@@ -4461,7 +4453,7 @@ void TUiHelper::GetTimeDescStr(const TTmDesc& Desc, TStrPr& StrDesc) {
 
 		break;
 	}
-	case TStateIdentifier::TTmHistType::thtWeek: {
+	case TTmGran::tgWeek: {
 		const int& StartDay = Desc.Val2;
 		const int& EndDay = Desc.Val3;
 
@@ -4473,7 +4465,7 @@ void TUiHelper::GetTimeDescStr(const TTmDesc& Desc, TStrPr& StrDesc) {
 
 		break;
 	}
-	case TStateIdentifier::TTmHistType::thtDay: {
+	case TTmGran::tgDay: {
 		const int& StartHour = Desc.Val2;
 		const int& EndHour = Desc.Val3;
 
@@ -5529,7 +5521,7 @@ void TStreamStory::GetGlobalTimeHistogram(const int& StateId, TUInt64V& TmV, TFl
 	StateIdentifier->GetGlobalTimeHistogram(AggState, TmV, ProbV, NBins, false);
 }
 
-void TStreamStory::GetTimeHistogram(const int& StateId, const TStateIdentifier::TTmHistType& HistType,
+void TStreamStory::GetTimeHistogram(const int& StateId, const TTmGran& HistType,
 		TIntV& BinV, TFltV& ProbV) const {
 	TAggState AggState;
 	Hierarch->GetLeafDescendantV(StateId, AggState);
@@ -5543,6 +5535,77 @@ void TStreamStory::GetStateHistory(const double& Scale,
 
 void TStreamStory::GetStateHistory(TVec<TPair<TFlt, TUInt64IntPrV>>& ScaleTmIdPrPrV) const {
     Hierarch->GetStateHistory(ScaleTmIdPrPrV);
+}
+
+PJsonVal TStreamStory::GetStateHistoryTmGran(const double& Scale, const TTmGran& TmGran) const {
+    PJsonVal Result = TJsonVal::NewArr();
+
+    TVec<THash<TInt, THash<TIntPr, TUInt64>>> HistTmGran;
+    Hierarch->GetStateHistoryTmGran(Scale, TmGran, HistTmGran);
+
+    for (int TimeN = 0; TimeN < HistTmGran.Len(); TimeN++) {
+        const THash<TInt, THash<TIntPr, TUInt64>>& StateJumpHH = HistTmGran[TimeN];
+
+        PJsonVal TimeJson = TJsonVal::NewObj();
+
+        switch (TmGran) {
+        case tgDay: {
+            TimeJson->AddToObj("name", HOURS_IN_DAY[TimeN]);
+            break;
+        }
+        case tgWeek: {
+            TimeJson->AddToObj("name", DAYS_IN_WEEK[TimeN]);
+            break;
+        }
+        case tgMonth: {
+            TimeJson->AddToObj("name", DAYS_IN_MONTH[TimeN]);
+            break;
+        }
+        case tgYear: {
+            TimeJson->AddToObj("name", MONTHS[TimeN]);
+            break;
+        }
+        default: {
+            throw TExcept::New("Unknown time granularity: " + TInt::GetHexStr(TmGran));
+        }
+        }
+
+        PJsonVal StatesJson = TJsonVal::NewArr();
+        {
+            int StateKeyId = StateJumpHH.FFirstKeyId();
+            while (StateJumpHH.FNextKeyId(StateKeyId)) {
+                const int& CurrStateId = StateJumpHH.GetKey(StateKeyId);
+                const THash<TIntPr, TUInt64>& JumpH = StateJumpHH[StateKeyId];
+
+                PJsonVal StateJson = TJsonVal::NewObj();
+                PJsonVal JumpJsonV = TJsonVal::NewArr();
+
+                int JumpKeyId = JumpH.FFirstKeyId();
+                while (JumpH.FNextKeyId(JumpKeyId)) {
+                    const TIntPr& StateIdTmNPr = JumpH.GetKey(JumpKeyId);
+                    const uint64& JumpCount = JumpH[JumpKeyId];
+
+                    PJsonVal JumpJson = TJsonVal::NewObj();
+                    JumpJson->AddToObj("id", StateIdTmNPr.Val1);
+                    JumpJson->AddToObj("timeN", StateIdTmNPr.Val2);
+                    JumpJson->AddToObj("count", JumpCount);
+
+                    JumpJsonV->AddToArr(JumpJson);
+                }
+
+                StateJson->AddToObj("id", CurrStateId);
+                StateJson->AddToObj("jumps", JumpJsonV);
+
+                StatesJson->AddToArr(StateJson);
+            }
+        }
+
+        TimeJson->AddToObj("states", StatesJson);
+
+        Result->AddToArr(TimeJson);
+    }
+
+    return Result;
 }
 
 PJsonVal TStreamStory::GetStateWgtV(const int& StateId) const {

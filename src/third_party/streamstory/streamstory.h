@@ -14,8 +14,111 @@
 
 namespace TMc {
 
+namespace TSsConstants {
+    enum TTmGran {
+        tgDay = 0,
+        tgWeek = 1,
+        tgMonth = 2,
+        tgYear = 3
+    };
+
+    enum TFtrType {
+        ftUndefined,
+        ftNumeric,
+        ftCategorical
+    };
+
+    // time descriptions
+    const TStr MONTHS[] = {
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December"
+    };
+
+    const TStr DAYS_IN_MONTH[] = {
+            "1st",
+            "2nd",
+            "3rd",
+            "4th",
+            "5th",
+            "6th",
+            "7th",
+            "8th",
+            "9th",
+            "10th",
+            "11th",
+            "12th",
+            "13th",
+            "14th",
+            "15th",
+            "16th",
+            "17th",
+            "18th",
+            "19th",
+            "20th",
+            "21st",
+            "22nd",
+            "23rd",
+            "24th",
+            "25th",
+            "26th",
+            "27th",
+            "28th",
+            "29th",
+            "30th",
+            "31th"
+    };
+
+    const TStr HOURS_IN_DAY[] = {
+            "Midnight",
+            "1AM",
+            "2AM",
+            "3AM",
+            "4AM",
+            "5AM",
+            "6AM",
+            "7AM",
+            "8AM",
+            "9AM",
+            "10AM",
+            "11AM",
+            "Noon",
+            "1PM",
+            "2PM",
+            "3PM",
+            "4PM",
+            "5PM",
+            "6PM",
+            "7PM",
+            "8PM",
+            "9PM",
+            "10PM",
+            "11PM"
+    };
+
+    const TStr DAYS_IN_WEEK[] = {
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday"
+    };
+}
+
 using namespace TClassification;
 using namespace TClustering;
+using namespace TSsConstants;
 
 namespace {
 	typedef TIntV TStateIdV;
@@ -40,14 +143,6 @@ public:
 			const int& TargetStateId, const double& Prob, const TFltV& ProbV,
 			const TFltV& TmV) = 0;
 	virtual void OnActivityDetected(const uint64& StartTm, const uint64& EndTm, const TStr& ActNm) = 0;
-};
-
-//================================================================
-// TODO move this somewhere
-enum TFtrType {
-	ftUndefined,
-	ftNumeric,
-	ftCategorical
 };
 
 ///////////////////////////////////////////////
@@ -165,13 +260,6 @@ private:
   	PNotify Notify;
 
 public:
-  	enum TTmHistType: uchar {
-  		thtYear = 0,
-		thtMonth = 1,
-		thtWeek = 2,
-		thtDay = 3
-  	};
-
   	TStateIdentifier(const PDenseKMeans& KMeans, const int NHistBins, const double& Sample,
   			const bool IncludeTmFtrV, const TRnd& Rnd=TRnd(0), const bool& Verbose=false);
 	TStateIdentifier(TSIn& SIn);
@@ -217,7 +305,7 @@ public:
 			const TAggState& AggState, TFltV& BinValV, TFltV& BinV, const bool& NormalizeP=true) const;
 	void GetGlobalTimeHistogram(const TAggState& AggState, TUInt64V& TmV, TFltV& BinV,
 			const int NBins = -1, const bool& NormalizeP=true) const;
-	void GetTimeHistogram(const TAggState& AggState, const TTmHistType& HistType, TIntV& BinValV,
+	void GetTimeHistogram(const TAggState& AggState, const TTmGran& HistType, TIntV& BinValV,
 			TFltV& BinV) const;
 
 	int GetStates() const { return KMeans->GetClusts(); }
@@ -586,6 +674,9 @@ protected:
 // Hierarchy modeler
 class THierarch {
 private:
+    typedef THash<TIntPr, TUInt64> TIdTmGranCountH;
+    typedef THash<TInt, TIdTmGranCountH> TIdNextIdTmGranCountH;
+
     // a vector which describes the hierarchy. each state has its own index
     // and the value at index i is the index of i-ths parent
     TIntV HierarchV;
@@ -598,7 +689,9 @@ private:
     // past states
     int HistCacheSize;
     TVec<TStateIdV> PastStateIdV;	// TODO not optimal structure
+    // stores historical state occurences on all scales
     TVec<TUInt64IntPrV> HierarchHistoryVV;
+    TVec<TVec<TIdNextIdTmGranCountH>> ScaleWeeklyStateJumpTrVV;
 
     // number of leaf states, these are stored in the first part of the hierarchy vector
     int NLeafs;
@@ -662,6 +755,9 @@ public:
 	/// returns the whole history of states on the given scale
 	void GetStateHistory(const double& Scale, TUInt64IntPrV& StateTmStateIdPrV) const;
 	void GetStateHistory(TVec<TPair<TFlt, TUInt64IntPrV>>& ScaleTmIdPrPrV) const;
+	/// returns the state and transition history on a certain time granularity
+	void GetStateHistoryTmGran(const double& Scale, const TTmGran& TmGran,
+	        TVec<TIdNextIdTmGranCountH>& HistTmGran) const;
 
 	// for each state returns the number of leafs it's subtree has
 	void GetLeafSuccesorCountV(TIntV& LeafCountV) const;
@@ -720,15 +816,11 @@ private:
 	/// initializes the history of hierarchies
 	void InitHistHierarch(const TUInt64V& RecTmV, const TFltVV& ObsFtrVV,
 	        const TStateIdentifier& StateIdentifier);
+	void InitHistTmGran(const TUInt64V& RecTmV, const TFltVV& ObsFtrVV,
+	            const TStateIdentifier& StateIdentifier);
 
-	double GetNextUiHeight(const double& Height) const {
-		const TFltV& UiHeightV = GetUiHeightV();
-		int HeightN = 0;
-		while (HeightN < UiHeightV.Len() && UiHeightV[HeightN] <= Height) {
-			HeightN++;
-		}
-		return UiHeightV[HeightN];
-	}
+	/// returns the next height used in the user interface
+	double GetNextUiHeight(const double& Height) const;
 
 	// static functions
 	static TInt& GetParentId(const int& StateId, TIntV& HierarchV) { return HierarchV[StateId]; }
@@ -749,12 +841,12 @@ private:
 // UI helper
 class TUiHelper {
 public:
-	enum TNumAutoNmLevel: uchar {	// TODO change to 0x8
-		nanlLowest = 0xF0,
-		nanlLow = 0xF1,
-		nanlMeduim = 0xF2,
-		nanlHigh = 0xF3,
-		nanlHighest = 0xF4
+	enum TNumAutoNmLevel: uchar {
+		nanlLowest = 0x80,
+		nanlLow = 0x81,
+		nanlMeduim = 0x82,
+		nanlHigh = 0x83,
+		nanlHighest = 0x84
 	};
 
 	class TAutoNmDesc;
@@ -829,7 +921,7 @@ public:
 
 private:
 
-	typedef TTriple<TUCh, TInt, TInt> TTmDesc;
+	typedef TTriple<TInt, TInt, TInt> TTmDesc;
 	typedef TVec<TTmDesc> TTmDescV;
 
 	// state sizes and coordinates
@@ -842,12 +934,6 @@ private:
 	static const double LOW_PVAL_THRESHOLD;
 	static const double LOWEST_PVAL_THRESHOLD;
 	static const double STATE_LOW_PVAL_THRESHOLD;
-
-	// time descriptions
-	static const TStr MONTHS[12];
-	static const TStr DAYS_IN_MONTH[31];
-	static const TStr DAYS_IN_WEEK[7];
-	static const TStr HOURS_IN_DAY[24];
 
 	TFltPrV StateCoordV;
 	PAutoNmDescV StateAutoNmV;
@@ -1103,10 +1189,11 @@ public:
 			TFltV& AllCountV) const;
 	void GetGlobalTimeHistogram(const int& StateId, TUInt64V& TmV, TFltV& ProbV,
 			const int& NBins=-1) const;
-	void GetTimeHistogram(const int& StateId, const TStateIdentifier::TTmHistType& HistType,
+	void GetTimeHistogram(const int& StateId, const TTmGran& HistType,
 			TIntV& BinV, TFltV& ProbV) const;
 	void GetStateHistory(const double& Scale, TUInt64IntPrV& StateTmStateIdPrV) const;
 	void GetStateHistory(TVec<TPair<TFlt, TUInt64IntPrV>>& ScaleTmIdPrPrV) const;
+	PJsonVal GetStateHistoryTmGran(const double& Scale, const TTmGran& TmGran) const;
 
 	// state explanations
 	PJsonVal GetStateWgtV(const int& StateId) const;

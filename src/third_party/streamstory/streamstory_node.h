@@ -126,6 +126,13 @@ public:
 	JsDeclareFunction(getHistoricalStates);
 
 	/**
+	 * @param {Number} scale
+	 * @param {String} granularity
+	 * @returns {Object}
+	 */
+	JsDeclareFunction(getHistoryTimeGran);
+
+	/**
 	 * Returns an object representation of this model.
 	 *
 	 * @returns {Object}
@@ -392,6 +399,7 @@ private:
 	static v8::Local<v8::Object> WrapHistogram(const TFltV& BinValV,
 			const TFltV& SourceProbV, const TFltV& TargetProbV, const TFltV& AllProbV);
 	static uint64 GetTmUnit(const TStr& TmUnitStr);
+	static TMc::TSsConstants::TTmGran GetTmGran(const TStr& TmGranStr);
 	static TClustering::TAbsKMeans<TFltVV>* GetClust(const PJsonVal& ParamJson, const TRnd& Rnd);
 
 	// feature information

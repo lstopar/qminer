@@ -29,6 +29,7 @@ void TNodeJsStreamStory::Init(v8::Handle<v8::Object> exports) {
 	NODE_SET_PROTOTYPE_METHOD(tpl, "probsAtTime", _probsAtTime);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "histStates", _histStates);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "getHistoricalStates", _getHistoricalStates);
+	NODE_SET_PROTOTYPE_METHOD(tpl, "getHistoryTimeGran", _getHistoryTimeGran);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "currState", _currState);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "fullCoords", _fullCoords);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "getStateCentroids", _getStateCentroids);
@@ -459,6 +460,20 @@ void TNodeJsStreamStory::getHistoricalStates(const v8::FunctionCallbackInfo<v8::
     }
 }
 
+void TNodeJsStreamStory::getHistoryTimeGran(const v8::FunctionCallbackInfo<v8::Value>& Args) {
+    v8::Isolate* Isolate = v8::Isolate::GetCurrent();
+    v8::HandleScope HandleScope(Isolate);
+
+    TNodeJsStreamStory* JsStreamStory = ObjectWrap::Unwrap<TNodeJsStreamStory>(Args.Holder());
+
+    const double Scale = TNodeJsUtil::GetArgFlt(Args, 0);
+    const TStr GranStr = TNodeJsUtil::GetArgStr(Args, 1);
+
+    const PJsonVal Result = JsStreamStory->StreamStory->GetStateHistoryTmGran(Scale, GetTmGran(GranStr));
+
+    Args.GetReturnValue().Set(TNodeJsUtil::ParseJson(Isolate, Result));
+}
+
 void TNodeJsStreamStory::toJSON(const v8::FunctionCallbackInfo<v8::Value>& Args) {
 	v8::Isolate* Isolate = v8::Isolate::GetCurrent();
 	v8::HandleScope HandleScope(Isolate);
@@ -653,18 +668,7 @@ void TNodeJsStreamStory::timeHistogram(const v8::FunctionCallbackInfo<v8::Value>
 		}
 	} else {
 		TIntV BinValIntV;
-
-		if (HistTypeStr == "year") {
-			JsStreamStory->StreamStory->GetTimeHistogram(StateId, TMc::TStateIdentifier::TTmHistType::thtYear, BinValIntV, ProbV);
-		} else if (HistTypeStr == "month") {
-			JsStreamStory->StreamStory->GetTimeHistogram(StateId, TMc::TStateIdentifier::TTmHistType::thtMonth, BinValIntV, ProbV);
-		} else if (HistTypeStr == "week") {
-			JsStreamStory->StreamStory->GetTimeHistogram(StateId, TMc::TStateIdentifier::TTmHistType::thtWeek, BinValIntV, ProbV);
-		} else if (HistTypeStr == "day") {
-			JsStreamStory->StreamStory->GetTimeHistogram(StateId, TMc::TStateIdentifier::TTmHistType::thtDay, BinValIntV, ProbV);
-		} else {
-			throw TExcept::New("Unknown time histogram type: " + HistTypeStr);
-		}
+		JsStreamStory->StreamStory->GetTimeHistogram(StateId, GetTmGran(HistTypeStr), BinValIntV, ProbV);
 
 		BinValV.Gen(BinValIntV.Len());
 		for (int BinN = 0; BinN < BinValIntV.Len(); BinN++) {
@@ -1479,6 +1483,24 @@ uint64 TNodeJsStreamStory::GetTmUnit(const TStr& TimeUnitStr) {
 	} else {
 		throw TExcept::New("Invalid time unit: " + TimeUnitStr, "TNodeJsStreamStory::GetTmUnit");
 	}
+}
+
+TMc::TSsConstants::TTmGran TNodeJsStreamStory::GetTmGran(const TStr& TmGranStr) {
+    if (TmGranStr == "year") {
+       return TMc::TSsConstants::TTmGran::tgYear;
+    }
+    else if (TmGranStr == "month") {
+        return TMc::TSsConstants::TTmGran::tgMonth;
+    }
+    else if (TmGranStr == "week") {
+        return TMc::TSsConstants::TTmGran::tgWeek;
+    }
+    else if (TmGranStr == "day") {
+        return TMc::TSsConstants::TTmGran::tgDay;
+    }
+    else {
+        throw TExcept::New("Unknown time granularity type: " + TmGranStr);
+    }
 }
 
 TClustering::TAbsKMeans<TFltVV>* TNodeJsStreamStory::GetClust(const PJsonVal& ParamJson,
