@@ -467,11 +467,28 @@ void TNodeJsStreamStory::getHistoryTimeGran(const v8::FunctionCallbackInfo<v8::V
     TNodeJsStreamStory* JsStreamStory = ObjectWrap::Unwrap<TNodeJsStreamStory>(Args.Holder());
 
     const double Scale = TNodeJsUtil::GetArgFlt(Args, 0);
-    const TStr GranStr = TNodeJsUtil::GetArgStr(Args, 1);
 
-    const PJsonVal Result = JsStreamStory->StreamStory->GetStateHistoryTmGran(Scale, GetTmGran(GranStr));
+    if (TNodeJsUtil::IsArgNullOrUndef(Args, 1)) {
+        // get all granularities
+        PJsonVal DayResult = JsStreamStory->StreamStory->GetStateHistoryTmGran(Scale, tgDay);
+        PJsonVal WeekResult = JsStreamStory->StreamStory->GetStateHistoryTmGran(Scale, tgWeek);
+        PJsonVal MonthResult = JsStreamStory->StreamStory->GetStateHistoryTmGran(Scale, tgMonth);
+        PJsonVal YearResult = JsStreamStory->StreamStory->GetStateHistoryTmGran(Scale, tgYear);
 
-    Args.GetReturnValue().Set(TNodeJsUtil::ParseJson(Isolate, Result));
+        PJsonVal Result = TJsonVal::NewObj();
+        Result->AddToObj("day", DayResult);
+        Result->AddToObj("week", WeekResult);
+        Result->AddToObj("month", MonthResult);
+        Result->AddToObj("year", YearResult);
+
+        Args.GetReturnValue().Set(TNodeJsUtil::ParseJson(Isolate, Result));
+    }
+    else {
+        const TStr GranStr = TNodeJsUtil::GetArgStr(Args, 1);
+        const PJsonVal Result = JsStreamStory->StreamStory->GetStateHistoryTmGran(Scale, GetTmGran(GranStr));
+
+        Args.GetReturnValue().Set(TNodeJsUtil::ParseJson(Isolate, Result));
+    }
 }
 
 void TNodeJsStreamStory::toJSON(const v8::FunctionCallbackInfo<v8::Value>& Args) {
