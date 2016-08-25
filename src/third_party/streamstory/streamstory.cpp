@@ -11,6 +11,325 @@
 using namespace TMc;
 
 ///////////////////////////////////////////////
+// A*
+bool TAStar::TAStarCmp::operator ()(const PPartialSolution& Sol1, const PPartialSolution& Sol2) const {
+    const double& Score1 = Sol1->Eval();
+    const double& Score2 = Sol2->Eval();
+
+    return Score1 > Score2;
+//
+//    if (Score1 < Score2) { return 1; }
+//    else if (Score1 > Score2) { return -1; }
+//    else { return 0; }
+}
+
+TAStar::PPartialSolution TAStar::Apply(const PPartialSolution& InitialSolution,
+        const uint64& MxIter, const PNotify& Notify) {
+    Notify->OnNotify(ntInfo, "Applying A* ...");
+
+    THeap<PPartialSolution, TAStarCmp> Queue;
+    TVec<PPartialSolution> TempSolutionV;
+
+    // do the work
+    Queue.PushHeap(InitialSolution);
+    uint64 IterN = 0;
+
+    while (!Queue.Empty() && IterN < MxIter) {
+        const PPartialSolution CurrBest = Queue.PopHeap();
+
+        if (IterN > 0 && IterN % 10000 == 0) {
+            Notify->OnNotifyFmt(ntInfo, "Iteration %d, queue size: %d ...", IterN, Queue.Len());
+            CurrBest->PrintStats(Notify);
+        }
+
+        if (CurrBest->IsFinal()) {
+            Notify->OnNotify(ntInfo, "Solution found!");
+            return CurrBest;
+        }
+
+        // generate the next step and add to queue
+        CurrBest->GenNextStep(TempSolutionV);
+        for (int SolN = 0; SolN < TempSolutionV.Len(); SolN++) {
+            Queue.PushHeap(TempSolutionV[SolN]);
+        }
+
+        TempSolutionV.Clr();
+        IterN++;
+    }
+
+    Notify->OnNotify(ntInfo, "Could not find a solution!");
+
+    return nullptr;
+}
+
+///////////////////////////////////////////////
+// Weighted graph
+TWgtGraph::TNode::TNode():
+        Id(-1),
+        OutNodeIdWgtH() {}
+
+TWgtGraph::TNode::TNode(const int& _Id):
+        Id(_Id),
+        OutNodeIdWgtH() {}
+
+void TWgtGraph::TNode::SetOutIdWgtV(const TIntFltPrV& OutEdgeV) {
+    for (int EdgeN = 0; EdgeN < OutEdgeV.Len(); EdgeN++) {
+        OutNodeIdWgtH.AddDat(OutEdgeV[EdgeN].Val1, OutEdgeV[EdgeN].Val2);
+    }
+}
+
+TWgtGraph::TMxCycleSolution::TMxCycleSolution(const TWgtGraph* _Graph, const int& StartNodeId):
+        Graph(_Graph),
+        CurrPath(),
+        UsedIdSet(),
+        MnEdgeWgt(TFlt::PInf) {
+
+    CurrPath.Add(StartNodeId);
+    UsedIdSet.AddKey(StartNodeId);
+}
+
+TWgtGraph::TMxCycleSolution::TMxCycleSolution(const TWgtGraph* _Graph,
+        const TMxCycleSolution& PrevSolution, const int& NewNodeId):
+        Graph(_Graph),
+        CurrPath(PrevSolution.CurrPath),
+        UsedIdSet(PrevSolution.UsedIdSet),
+        MnEdgeWgt(PrevSolution.MnEdgeWgt) {
+
+    EAssert(!UsedIdSet.IsKey(NewNodeId));
+
+    if (Graph->GetEdgeWgt(CurrPath.Last(), NewNodeId) < MnEdgeWgt) {
+        MnEdgeWgt = Graph->GetEdgeWgt(CurrPath.Last(), NewNodeId);
+    }
+
+    CurrPath.Add(NewNodeId);
+    UsedIdSet.AddKey(NewNodeId);
+}
+
+bool TWgtGraph::TMxCycleSolution::IsFinal() const {
+    return CurrPath.Len() > 1 && CurrPath[0] == CurrPath.Last();
+}
+
+void TWgtGraph::TMxCycleSolution::GenNextStep(TVec<TAStar::PPartialSolution>& SolV) const {
+    const int& LastNodeId = CurrPath.Last();
+
+    TIntV NextIdV;  Graph->GetNeighbourIdV(LastNodeId, NextIdV);
+
+    for (int NextN = 0; NextN < NextIdV.Len(); NextN++) {
+        const int& NextNodeId = NextIdV[NextN];
+
+        if (UsedIdSet.IsKey(NextNodeId)) { continue; }
+
+        SolV.Add(new TMxCycleSolution(Graph, *this, NextNodeId));
+    }
+}
+
+double TWgtGraph::TMxCycleSolution::Cost() const {
+    const int NEdges = CurrPath.Len()-1;
+
+    double Sum = 0;
+    for (int EdgeN = 0; EdgeN < NEdges; EdgeN++) {
+        Sum += TMath::Log(Graph->GetEdgeWgt(CurrPath[EdgeN], CurrPath[EdgeN+1]));
+    }
+
+//    return -Sum;
+    return 0;
+
+//    return -GetMnEdgeWgt()*(CurrPath.Len() - 1);
+}
+
+double TWgtGraph::TMxCycleSolution::Heuristic() const {
+    if (CurrPath.Len() > 1 && CurrPath.Last() == CurrPath[0]) { return 0; }
+
+    const int NEdges = CurrPath.Len()-1;
+
+    double MeanProb = 0;
+    double MxProb = TFlt::Mn;
+    double MnProb = TFlt::Mx;
+    for (int EdgeN = 0; EdgeN < NEdges; EdgeN++) {
+        const double& Prob = Graph->GetEdgeWgt(CurrPath[EdgeN], CurrPath[EdgeN+1]);
+        MeanProb += Prob;
+
+        if (Prob > MxProb) { MxProb = Prob; }
+        if (Prob < MnProb) { MnProb = Prob; }
+    }
+    MeanProb /= NEdges;
+
+    return -(Graph->GetNodeN() - NEdges)*TMath::Log(MxProb);
+//    return 0;
+//    return -GetMnEdgeWgt()*(Graph->GetNodeN() - CurrPath.Len() + 1);
+}
+
+void TWgtGraph::TMxCycleSolution::PrintStats(const PNotify& Notify) const {
+    Notify->OnNotifyFmt(ntInfo, "Solution length: %d, f: %.3f", CurrPath.Len(), (Cost() + Heuristic()));
+    Notify->OnNotifyFmt(ntInfo, "Minimum weight: %.3f", GetMnEdgeWgt());
+}
+
+TWgtGraph::TWgtGraph():
+    NodeIdNodeH() {}
+
+void TWgtGraph::SetNodes(const TIntV& NodeIdV) {
+    for (int NodeN = 0; NodeN < NodeIdV.Len(); NodeN++) {
+        const int& NodeId = NodeIdV[NodeN];
+        NodeIdNodeH.AddDat(NodeId, TNode(NodeId));
+    }
+}
+
+void TWgtGraph::SetNodeEdgeV(const int& NodeId, const TIntFltPrV& OutEdgeV,
+        const TIntFltPrV& InEdgeV) {
+    TNode& Node = NodeIdNodeH.GetDat(NodeId);
+    Node.SetOutIdWgtV(OutEdgeV);
+}
+
+double TWgtGraph::GetEdgeWgt(const int& SourceId, const int& DestId) const {
+    const TNode& Source = GetNode(SourceId);
+    return Source.GetEdgeWgt(DestId);
+}
+
+void TWgtGraph::GetNeighbourIdV(const int& NodeId, TIntV& NeighbourIdV) const {
+    GetNode(NodeId).GetOutNodeIdV(NeighbourIdV);
+}
+
+void TWgtGraph::GenCyclesFromBruteForce(const int& StartNodeId, TVec<TIntV>& CycleVV, const PNotify& Notify) const {
+    TVec<TIntV> PathVV;
+    TVec<TIntV> NewPathVV;
+
+    TVec<TIntV>* PathVVPtr = &PathVV;
+    TVec<TIntV>* NewPathVVPtr = &NewPathVV;
+    TVec<TIntV>* Temp = nullptr;
+
+    // initialize
+    {
+        PathVVPtr->Add(TIntV());
+        PathVVPtr->Last().Add(StartNodeId);
+    }
+
+    // generate all paths from the starting node
+    // when you hit the starting node, report a new cycle
+    while (!PathVVPtr->Empty()) {
+        NewPathVVPtr->Clr();
+        for (int PathN = 0; PathN < PathVVPtr->Len(); PathN++) {
+            const TIntV& CurrPath = PathVVPtr->GetVal(PathN);
+            const int& LastNodeId = CurrPath.Last();
+            const TNode& FirstNode = GetNode(LastNodeId);
+
+            TIntV NextNodeIdV;  FirstNode.GetOutNodeIdV(NextNodeIdV);
+            for (int NextNodeN = 0; NextNodeN < NextNodeIdV.Len(); NextNodeN++) {
+                const int& NextNodeId = NextNodeIdV[NextNodeN];
+
+                if (NextNodeId == StartNodeId) {    // found a cycle
+                    CycleVV.Add(CurrPath);
+                }
+                else if (!CurrPath.IsIn(NextNodeId)) {
+                    NewPathVVPtr->Add(CurrPath);
+                    NewPathVVPtr->Last().Add(NextNodeId);
+                }
+            }
+        }
+
+        // switch the pointers
+        Temp = PathVVPtr;
+        PathVVPtr = NewPathVVPtr;
+        NewPathVVPtr = Temp;
+    }
+}
+
+void TWgtGraph::GenCyclesFromJohnson(const int& StartId, TVec<TIntV>& CycleVV) const {
+    TIntV Stack;
+    TIntBoolH BlockedH;
+    THash<TInt, TIntSet> BlockIdSetH;
+
+    {   // initialize the necessary structures
+        int KeyId = NodeIdNodeH.FFirstKeyId();
+        while (NodeIdNodeH.FNextKeyId(KeyId)) {
+            const int& NodeId = NodeIdNodeH.GetKey(KeyId);
+            BlockedH.AddDat(NodeId, false);
+            BlockIdSetH.AddDat(NodeId);
+        }
+    }
+
+    GenCyclesJohnson(StartId, StartId, Stack, BlockedH, BlockIdSetH, CycleVV);
+}
+
+bool TWgtGraph::FindMxCycleAStar(const int& StartId, TIntV& CycleV, const PNotify& Notify) const {
+    const TAStar::PPartialSolution InitSolution = new TMxCycleSolution(this, StartId);
+    const TAStar::PPartialSolution Result = TAStar::Apply(InitSolution, TUInt64::Mx, Notify);
+
+    if (Result.Empty()) { return false; }
+
+    const TMxCycleSolution* FinalSolution = (TMxCycleSolution*) Result();
+    CycleV = FinalSolution->GetCurrPath();
+    // CycleV contains the starting node twice - once at the beginning and once at the end => remove the one at the end
+    CycleV.DelLast();
+
+    return true;
+}
+
+const TWgtGraph::TNode& TWgtGraph::GetNode(const int& NodeId) const {
+    EAssertR(NodeIdNodeH.IsKey(NodeId), "Node not in graph!");
+    return NodeIdNodeH.GetDat(NodeId);
+}
+
+void TWgtGraph::UnblockJohnson(const int& NodeId, TIntBoolH& BlockedH, THash<TInt, TIntSet>& BlockIdSetH) const {
+    BlockedH(NodeId) = false;
+
+    TIntSet BlockIdSet = BlockIdSetH(NodeId);
+
+    BlockIdSetH(NodeId).Clr();
+
+    int KeyId = BlockIdSet.FFirstKeyId();
+    while (BlockIdSet.FNextKeyId(KeyId)) {
+        const int& BlockedNodeId = BlockIdSet.GetKey(KeyId);
+        if (BlockedH(BlockedNodeId)) {
+            UnblockJohnson(BlockedNodeId, BlockedH, BlockIdSetH);
+        }
+    }
+}
+
+bool TWgtGraph::GenCyclesJohnson(const int& StartNodeId, const int& CurrNodeId, TIntV& Stack,
+        TIntBoolH& BlockedH, THash<TInt, TIntSet>& BlockIdSetH, TVec<TIntV>& CycleVV) const {
+    bool FoundP = false;
+
+    Stack.Add(CurrNodeId);
+    BlockedH(CurrNodeId) = true;
+
+    // iterate through neighbors of the current node and continue the procedure recursively
+    const TNode& CurrNode = GetNode(CurrNodeId);
+    TIntV NextNodeIdV;  CurrNode.GetOutNodeIdV(NextNodeIdV);
+
+    for (int NextNodeN = 0; NextNodeN < NextNodeIdV.Len(); NextNodeN++) {
+        const int& NextNodeId = NextNodeIdV[NextNodeN];
+
+        if (NextNodeId == StartNodeId) {
+            // found a cycle
+            CycleVV.Add(Stack);
+            FoundP = true;
+        }
+        else if (!BlockedH(NextNodeId)) {
+            // recursively continue the procedure
+            if (GenCyclesJohnson(StartNodeId, NextNodeId, Stack, BlockedH, BlockIdSetH, CycleVV)) {
+                FoundP = true;
+            }
+        }
+    }
+
+    if (FoundP) {
+        UnblockJohnson(CurrNodeId, BlockedH, BlockIdSetH);
+    } else {
+        for (int NextNodeN = 0; NextNodeN < NextNodeIdV.Len(); NextNodeN++) {
+            const int& NextNodeId = NextNodeIdV[NextNodeN];
+            TIntSet& NextNodeBlocksIdSet = BlockIdSetH(NextNodeId);
+            if (!NextNodeBlocksIdSet.IsKey(CurrNodeId)) {
+                NextNodeBlocksIdSet.AddKey(CurrNodeId);
+            }
+        }
+    }
+
+    // unstack and return to previous call
+    Stack.DelLast();
+    return FoundP;
+}
+
+///////////////////////////////////////////////
 // Feature information
 TFtrInfo::TFtrInfo():
 		Type(ftUndefined),
@@ -2350,6 +2669,47 @@ void TCtmcModeller::GetHoldingTmV(const TAggStateV& StateSetV, const TStateFtrVV
 	}
 }
 
+void TCtmcModeller::GetWgtGraph(const TAggStateV& AggStateV, const TStateFtrVV& StateFtrVV,
+        const TIntV& StateIdV, TWgtGraph& Graph) const {
+    TFltVV JumpVV;  GetJumpVV(AggStateV, StateFtrVV, JumpVV);
+
+    Graph.SetNodes(StateIdV);
+
+    for (int i = 0; i < JumpVV.GetRows(); i++) {
+        TIntFltPrV NextNodeWgtPrV;
+        TIntFltPrV PrevNodeWgtPrV;
+        for (int j = 0; j < JumpVV.GetCols(); j++) {
+            if (JumpVV(i,j) > 0) {
+                NextNodeWgtPrV.Add(TIntFltPr(StateIdV[j], JumpVV(i,j)));
+            }
+            if (JumpVV(j,i) > 0) {
+                PrevNodeWgtPrV.Add(TIntFltPr(StateIdV[j], JumpVV(j,i)));
+            }
+        }
+        Graph.SetNodeEdgeV(StateIdV[i], NextNodeWgtPrV, PrevNodeWgtPrV);
+    }
+}
+
+double TCtmcModeller::CalcCycleWgt(const TIntV& CycleV, const TIntV& StateIdV,
+        const TFltVV& JumpVV, const TIntH& IdToNH) const {
+    // return the min probability times the number of edges
+    double MnProb = 1;
+    for (int PathStateN = 0; PathStateN < CycleV.Len()-1; PathStateN++) {
+        const int& CurrStateId = CycleV[PathStateN];
+        const int& NextStateId = CycleV[PathStateN+1];
+
+        const int& CurrStateN = IdToNH.GetDat(CurrStateId);
+        const int& NextStateN = IdToNH.GetDat(NextStateId);
+
+        const double Prob = JumpVV(CurrStateN, NextStateN);
+        if (Prob < MnProb) {
+            MnProb = Prob;
+        }
+    }
+
+    return MnProb * (CycleV.Len() + 1);
+}
+
 bool TCtmcModeller::IsAnomalousJump(const TFltV& FtrV, const int& NewStateId, const int& OldStateId) const {
 	TFltV IntensV;	GetStateIntensV(OldStateId, FtrV, IntensV);
 
@@ -2769,6 +3129,7 @@ THierarch::THierarch(const bool& _HistCacheSize, const bool& _IsTransitionBased,
 		HistCacheSize(_HistCacheSize),
 		PastStateIdV(),
 		HierarchHistoryVV(),
+		ScaleStateIdCycleVH(),
 		NLeafs(0),
 		StateNmV(),
 		StateLabelV(),
@@ -2789,6 +3150,7 @@ THierarch::THierarch(TSIn& SIn):
 		HistCacheSize(TInt(SIn)),
 		PastStateIdV(SIn),
 		HierarchHistoryVV(SIn),
+		ScaleStateIdCycleVH(SIn),
 		NLeafs(TInt(SIn)),
 		StateNmV(SIn),
 		StateLabelV(SIn),
@@ -2810,6 +3172,7 @@ void THierarch::Save(TSOut& SOut) const {
 	TInt(HistCacheSize).Save(SOut);
 	PastStateIdV.Save(SOut);
 	HierarchHistoryVV.Save(SOut);
+	ScaleStateIdCycleVH.Save(SOut);
 	TInt(NLeafs).Save(SOut);
 	StateNmV.Save(SOut);
 	StateLabelV.Save(SOut);
@@ -2873,6 +3236,8 @@ void THierarch::Init(const TUInt64V& RecTmV, const TFltVV& ObsFtrVV, const int& 
 
 	// init the hierarchy history
 	InitHistHierarch(RecTmV, ObsFtrVV, StateIdentifier);
+	// init cycles
+	InitCycles(StreamStory);
 }
 
 void THierarch::UpdateHistory(const int& CurrLeafId) {
@@ -3194,6 +3559,19 @@ void THierarch::GetStateHistory(TVec<TPair<TFlt, TUInt64IntPrV>>& ScaleTmIdPrPrV
     }
 }
 
+void THierarch::GetStateCycleVV(const int& StateId, const double& Scale,
+        TVec<TPair<TFlt,TIntV>>& WgtCycleVV) const {
+    const int ScaleN = GetUiScaleN(Scale);
+
+    EAssertR(0 <= ScaleN && ScaleN < ScaleStateIdCycleVH.Len(), "Invalid scale: " + TFlt::GetStr(Scale));
+
+    const THash<TInt, TVec<TPair<TFlt,TIntV>>>& StateIdCycleVH = ScaleStateIdCycleVH[ScaleN];
+
+    EAssertR(StateIdCycleVH.IsKey(StateId), "State " + TInt::GetStr(StateId) + " is not on scale: " + TFlt::GetStr(Scale));
+
+    WgtCycleVV = StateIdCycleVH.GetDat(StateId);
+}
+
 void THierarch::GetLeafSuccesorCountV(TIntV& LeafCountV) const {
 	const int NStates = GetStates();
 
@@ -3289,6 +3667,62 @@ void THierarch::PrintHierarch() const {
 	}
 
 	Notify->OnNotifyFmt(TNotifyType::ntInfo, "Hierarchy: %s", ChA.CStr());
+}
+
+void THierarch::InitCycles(const TStreamStory& StreamStory) {
+    Notify->OnNotify(ntInfo, "Computing cycles ...");
+
+    const TFltV& ScaleV = GetUiHeightV();
+
+    const TStateIdentifier& StateIdentifier = StreamStory.GetStateIdentifier();
+    const TCtmcModeller& TransModeller = StreamStory.GetTransitionModeler();
+
+    TStateFtrVV StateFtrVV; StateIdentifier.GetControlCentroidVV(StreamStory, StateFtrVV);
+
+    ScaleStateIdCycleVH.Clr();
+    for (int ScaleN = 0; ScaleN < ScaleV.Len(); ScaleN++) {
+        const double& Scale = ScaleV[ScaleN];
+
+        ScaleStateIdCycleVH.Add(THash<TInt, TVec<TPair<TFlt,TIntV>>>());
+        THash<TInt, TVec<TPair<TFlt,TIntV>>>& StateIdCycleVVH = ScaleStateIdCycleVH.Last();
+
+        // get the states at this scale
+        TIntV StateIdV; TAggStateV AggStateV;
+        GetStateSetsAtHeight(Scale, StateIdV, AggStateV);
+
+        TWgtGraph ScaleGraph;
+        TransModeller.GetWgtGraph(AggStateV, StateFtrVV, StateIdV, ScaleGraph);
+
+        // precompute the transition matrices to calculate cycle weights faster
+        TIntH IdToNH;
+        for (int StateN = 0; StateN < StateIdV.Len(); StateN++) {
+            IdToNH.AddDat(StateIdV[StateN], StateN);
+        }
+
+        TFltVV JumpVV;  TransModeller.GetJumpVV(AggStateV, StateFtrVV, JumpVV);
+
+        for (int StateN = 0; StateN < StateIdV.Len(); StateN++) {
+            const int& StateId = StateIdV[StateN];
+
+            Notify->OnNotifyFmt(ntInfo, "Computing cycles for state %d, scale: %.2f", StateId, Scale);
+
+            TIntV CycleV;
+            const bool CycleFoundP = ScaleGraph.FindMxCycleAStar(StateId, CycleV, Notify);
+
+            TVec<TPair<TFlt, TIntV>>& WgtCycleVPrV = StateIdCycleVVH.AddDat(StateId);
+
+            if (CycleFoundP) {
+                Notify->OnNotify(ntInfo, "Found cycle!");
+
+                // TODO remove the weight
+                const double Wgt = TransModeller.CalcCycleWgt(CycleV, StateIdV, JumpVV, IdToNH);
+                WgtCycleVPrV.Add(TPair<TFlt,TIntV>(Wgt, CycleV));
+            }
+            else {
+                Notify->OnNotify(ntInfo, "Unable to find cycle!");
+            }
+        }
+    }
 }
 
 void THierarch::InitHierarchyDist(const TStateIdentifier& StateIdentifier) {
@@ -5543,6 +5977,11 @@ void TStreamStory::GetStateHistory(const double& Scale,
 
 void TStreamStory::GetStateHistory(TVec<TPair<TFlt, TUInt64IntPrV>>& ScaleTmIdPrPrV) const {
     Hierarch->GetStateHistory(ScaleTmIdPrPrV);
+}
+
+void TStreamStory::GetStateCycleVV(const int& StateId, const double& Scale,
+        TVec<TPair<TFlt,TIntV>>& CycleVV) const {
+    Hierarch->GetStateCycleVV(StateId, Scale, CycleVV);
 }
 
 PJsonVal TStreamStory::GetStateWgtV(const int& StateId) const {

@@ -46,6 +46,8 @@ void TNodeJsStreamStory::Init(v8::Handle<v8::Object> exports) {
 	NODE_SET_PROTOTYPE_METHOD(tpl, "toJSON", _toJSON);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "getSubModelJson", _getSubModelJson);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "getStatePath", _getStatePath);
+	NODE_SET_PROTOTYPE_METHOD(tpl, "getCycles", _getCycles);
+	NODE_SET_PROTOTYPE_METHOD(tpl, "rebuildCycles", _rebuildCycles);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "getTransitionModel", _getTransitionModel);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "onStateChanged", _onStateChanged);
 	NODE_SET_PROTOTYPE_METHOD(tpl, "onAnomaly", _onAnomaly);
@@ -493,6 +495,50 @@ void TNodeJsStreamStory::getStatePath(const v8::FunctionCallbackInfo<v8::Value>&
 	const PJsonVal PathJson = JsStreamStory->StreamStory->GetLikelyPathTreeJson(StateId, Height, Depth, TransThreshold);
 
 	Args.GetReturnValue().Set(TNodeJsUtil::ParseJson(Isolate, PathJson));
+}
+
+void TNodeJsStreamStory::getCycles(const v8::FunctionCallbackInfo<v8::Value>& Args) {
+    v8::Isolate* Isolate = v8::Isolate::GetCurrent();
+    v8::HandleScope HandleScope(Isolate);
+
+    TNodeJsStreamStory* JsStreamStory = ObjectWrap::Unwrap<TNodeJsStreamStory>(Args.Holder());
+
+    const int StateId = TNodeJsUtil::GetArgInt32(Args, 0);
+    const double Scale = TNodeJsUtil::GetArgFlt(Args, 1);
+
+    TVec<TPair<TFlt,TIntV>> CycleVV;
+    JsStreamStory->StreamStory->GetStateCycleVV(StateId, Scale, CycleVV);
+
+    v8::Local<v8::Array> Result = v8::Array::New(Isolate, CycleVV.Len());
+    for (int CycleN = 0; CycleN < CycleVV.Len(); CycleN++) {
+        const TPair<TFlt,TIntV>& WgtPathVPr = CycleVV[CycleN];
+        const TIntV& PathV = WgtPathVPr.Val2;
+
+        v8::Local<v8::Array> JsPathV = v8::Array::New(Isolate, PathV.Len());
+
+        for (int StateN = 0; StateN < PathV.Len(); StateN++) {
+            JsPathV->Set(StateN, v8::Integer::New(Isolate, PathV[StateN]));
+        }
+
+        v8::Local<v8::Object> JsCycle = v8::Object::New(Isolate);
+        JsCycle->Set(v8::String::NewFromUtf8(Isolate, "weight"), v8::Number::New(Isolate, WgtPathVPr.Val1.Val));
+        JsCycle->Set(v8::String::NewFromUtf8(Isolate, "path"), JsPathV);
+
+        Result->Set(CycleN, JsCycle);
+    }
+
+    Args.GetReturnValue().Set(Result);
+}
+
+void TNodeJsStreamStory::rebuildCycles(const v8::FunctionCallbackInfo<v8::Value>& Args) {
+    v8::Isolate* Isolate = v8::Isolate::GetCurrent();
+    v8::HandleScope HandleScope(Isolate);
+
+    TNodeJsStreamStory* JsStreamStory = ObjectWrap::Unwrap<TNodeJsStreamStory>(Args.Holder());
+
+    JsStreamStory->StreamStory->RebuildCycles();
+
+    Args.GetReturnValue().Set(v8::Undefined(Isolate));
 }
 
 void TNodeJsStreamStory::getTransitionModel(const v8::FunctionCallbackInfo<v8::Value>& Args) {

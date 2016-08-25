@@ -17,15 +17,144 @@ namespace TMc {
 using namespace TClassification;
 using namespace TClustering;
 
+// forward declarations
+class TStreamStory;
+
 namespace {
 	typedef TIntV TStateIdV;
 	typedef TIntSet TStateIdSet;
 	typedef TIntV TAggState;
 	typedef TVec<TAggState> TAggStateV;
 	typedef TVec<TFltV> TStateFtrVV;
-}
 
-class TStreamStory;
+	class TAStar {
+	public:
+	    class TPartialSolution;
+            typedef TPt<TPartialSolution> PPartialSolution;
+        class TPartialSolution {
+        protected:
+            TCRef CRef;
+        public:
+            friend class TPt<TPartialSolution>;
+        public:
+            virtual ~TPartialSolution() {}
+
+            /// determines if this is a final solution and the algorithm can terminate
+            virtual bool IsFinal() const = 0;
+            /// generates the next candidates
+            virtual void GenNextStep(TVec<PPartialSolution>& SolV) const = 0;
+            /// cost of the current solution
+            virtual double Cost() const = 0;
+            /// heuristic which estimates the cost of the path that is still missing
+            virtual double Heuristic() const = 0;
+            /// prints statistics about this solution
+            virtual void PrintStats(const PNotify& Notify) const {}
+
+            double Eval() const { return Cost() + Heuristic(); }
+        };
+
+	private:
+        class TAStarCmp {
+        public:
+            bool operator ()(const PPartialSolution& Sol1, const PPartialSolution& Sol2) const;
+        };
+
+	public:
+	    static PPartialSolution Apply(const PPartialSolution& InitialSolution,
+	            const uint64& MxIter=TUInt64::Mx, const PNotify& Notify=TNotify::NullNotify);
+	};
+
+	///////////////////////////////////////////////
+	// Weighted graph
+	class TWgtGraph {
+	private:
+	    ///////////////////////////////////////////////
+        // Graph node
+	    class TNode {
+	    private:
+	        int Id;
+	        TIntFltH OutNodeIdWgtH;
+
+	    public:
+	        TNode();
+	        TNode(const int& Id);
+
+	        void SetOutIdWgtV(const TIntFltPrV& OutEdgeV);
+	        void GetOutNodeIdV(TIntV& OutNodeIdV) const {
+	            int KeyId = OutNodeIdWgtH.FFirstKeyId();
+	            while (OutNodeIdWgtH.FNextKeyId(KeyId)) {
+	                OutNodeIdV.Add(OutNodeIdWgtH.GetKey(KeyId));
+	            }
+	        }
+
+	        double GetEdgeWgt(const int& DestId) const {
+	            EAssert(OutNodeIdWgtH.IsKey(DestId));
+	            return OutNodeIdWgtH.GetDat(DestId);
+	        }
+	    };
+
+	    class TMxCycleSolution;
+	        typedef TPt<TMxCycleSolution> PMxCycleSolution;
+	    class TMxCycleSolution : public TAStar::TPartialSolution {
+	    protected:
+	        TCRef CRef;
+	    public:
+	        friend class TPt<TMxCycleSolution>;
+	    private:
+	        const TWgtGraph* Graph;
+
+	        TIntV CurrPath;
+	        TIntSet UsedIdSet;
+	        double MnEdgeWgt;
+
+	    public:
+	        TMxCycleSolution(const TWgtGraph* Graph, const int& StartNodeId);
+	        TMxCycleSolution(const TWgtGraph* _Graph, const TMxCycleSolution& PrevSolution,
+	                const int& NewNodeId);
+
+	        const TIntV& GetCurrPath() const { return CurrPath; }
+
+	        bool IsFinal() const;
+	        void GenNextStep(TVec<TAStar::PPartialSolution>& SolV) const;
+
+	        double Cost() const;
+            double Heuristic() const;
+
+            void PrintStats(const PNotify& Notify) const;
+
+	    private:
+            const double& GetMnEdgeWgt() const { return MnEdgeWgt; }
+	    };
+
+	private:
+	    THash<TInt, TNode> NodeIdNodeH;
+
+	public:
+	    TWgtGraph();
+
+	    void SetNodes(const TIntV& NodeIdV);
+	    void SetNodeEdgeV(const int& NodeId, const TIntFltPrV& OutEdgeV,
+	            const TIntFltPrV& InEdgeV);
+
+	    int GetNodeN() const { return NodeIdNodeH.Len(); }
+	    double GetEdgeWgt(const int& SourceId, const int& DestId) const;
+	    void GetNeighbourIdV(const int& NodeId, TIntV& NeighbourIdV) const;
+
+	    void GenCyclesFromBruteForce(const int& StartNodeId, TVec<TIntV>& CycleVV, const PNotify& Notify) const;
+	    void GenCyclesFromJohnson(const int& StartId, TVec<TIntV>& CycleVV) const;
+
+	    bool FindMxCycleAStar(const int& StartId, TIntV& CycleV, const PNotify& Notify) const;
+
+	private:
+	    const TNode& GetNode(const int& NodeId) const;
+
+	    void UnblockJohnson(const int& NodeId, TIntBoolH& BlockedH,
+	            THash<TInt, TIntSet>& BlockIdSetH) const;
+
+	    bool GenCyclesJohnson(const int& StartNodeId, const int& CurrNodeId, TIntV& Stack,
+	            TIntBoolH& BlockedH, THash<TInt, TIntSet>& BlockIdSetH, TVec<TIntV>& CycleVV) const;
+	};
+}
 
 // helper classes
 class TStreamStoryCallback {
@@ -484,6 +613,11 @@ public:
 	void GetHoldingTmV(const TAggStateV& AggStateV, const TStateFtrVV& StateFtrVV,
 			TFltV& HoldingTmV) const;
 
+	void GetWgtGraph(const TAggStateV& AggStateV, const TStateFtrVV& StateFtrVV,
+	        const TIntV& StateIdV, TWgtGraph& Graph) const;
+	double CalcCycleWgt(const TIntV& CycleV, const TIntV& StateIdV, const TFltVV& JumpVV,
+	        const TIntH& IdToNH) const;
+
 	// returns true if the jump from OldStateId to NewStateId has a low enough probability
 	bool IsAnomalousJump(const TFltV& FtrV, const int& NewStateId, const int& OldStateId) const;
 
@@ -599,6 +733,7 @@ private:
     int HistCacheSize;
     TVec<TStateIdV> PastStateIdV;	// TODO not optimal structure
     TVec<TUInt64IntPrV> HierarchHistoryVV;
+    TVec<THash<TInt, TVec<TPair<TFlt,TIntV>>>> ScaleStateIdCycleVH;
 
     // number of leaf states, these are stored in the first part of the hierarchy vector
     int NLeafs;
@@ -662,6 +797,7 @@ public:
 	/// returns the whole history of states on the given scale
 	void GetStateHistory(const double& Scale, TUInt64IntPrV& StateTmStateIdPrV) const;
 	void GetStateHistory(TVec<TPair<TFlt, TUInt64IntPrV>>& ScaleTmIdPrPrV) const;
+	void GetStateCycleVV(const int& StateId, const double& Scale, TVec<TPair<TFlt,TIntV>>& WgtCycleVV) const;
 
 	// for each state returns the number of leafs it's subtree has
 	void GetLeafSuccesorCountV(TIntV& LeafCountV) const;
@@ -688,6 +824,8 @@ public:
 
 	void SetVerbose(const bool& Verbose);
 	void PrintHierarch() const;
+
+	void InitCycles(const TStreamStory& StreamStory);   // TODO move me to private
 
 private:
 	void InitHierarchyDist(const TStateIdentifier& StateIdentifier);
@@ -1069,6 +1207,10 @@ public:
 	void InitStateAssist(const TUInt64V& RecTmV, const TFltVV& ObsFtrVV,
 			const TFltVV& ContrFtrVV, const TFltVV& IgnFtrVV, const bool& MultiThread);
 
+	void RebuildCycles() {  // TODO remove me
+	    Hierarch->InitCycles(*this);
+	}
+
 	void OnAddRec(const uint64& RecTm, const TFltV& ObsFtrV, const TFltV& ContrFtrV);
 
 	// future and past probabilities
@@ -1107,6 +1249,7 @@ public:
 			TIntV& BinV, TFltV& ProbV) const;
 	void GetStateHistory(const double& Scale, TUInt64IntPrV& StateTmStateIdPrV) const;
 	void GetStateHistory(TVec<TPair<TFlt, TUInt64IntPrV>>& ScaleTmIdPrPrV) const;
+	void GetStateCycleVV(const int& StateId, const double& Scale, TVec<TPair<TFlt,TIntV>>& CycleVV) const;
 
 	// state explanations
 	PJsonVal GetStateWgtV(const int& StateId) const;

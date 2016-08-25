@@ -13,8 +13,6 @@
 //!
 //! **Constructor:**
 //!
-//!- `hmc = new analytics.HMC(params)` -- Creates a new model using `params` JSON. TODO param description.
-//!- `hmc = new analytics.HMC(fin)` -- Loads the model from input stream `fin`.
 class TNodeJsStreamStory : public node::ObjectWrap, public TMc::TStreamStoryCallback {
 	friend class TNodeJsUtil;
 public:
@@ -150,6 +148,15 @@ public:
 	 * @returns {Object}
 	 */
 	JsDeclareFunction(getStatePath);
+
+	/**
+	 * @param {Number} stateId
+	 * @param {Number} scale
+	 * @returns {Array}
+	 */
+	JsDeclareFunction(getCycles);
+
+    JsDeclareFunction(rebuildCycles);   // TODO remove me
 
 	/**
 	 * Returns the underlying transition model at the lowest level. (for CTMC the matrix of intensities)

@@ -1942,7 +1942,7 @@ public:
 template <class TVal, class TCmp = TLss<TVal> >
 class THeap {
 private:
-  TCmp Cmp;
+  TCmp Cmp;     // should return true if the first element is smaller than the second
   TVec<TVal> HeapV;
 private:
   void PushHeap(const int& First, int HoleIdx, const int& Top, TVal Val);
