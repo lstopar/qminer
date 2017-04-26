@@ -884,104 +884,116 @@ TStr TChAIn::GetSNm() const {
   return "Input-Char-Array"; 
 }
 
+
 /////////////////////////////////////////////////
 // String
-const char TStr::EmptyStr = 0;
+TStr::TStr(): ShortBuff(""), Inner(ShortBuff) {}
 
-TStr TStr::WrapCStr(char* _CStr) {
-	TStr NewStr;
-
-	if (_CStr != nullptr && _CStr[0] == 0) {
-		delete[] _CStr;
-	} else if (_CStr != nullptr) {
-		NewStr.Inner = _CStr;
-	}
-
-	return NewStr;
+TStr::TStr(const char* _CStr): ShortBuff(""), Inner(ShortBuff) {
+    if (_CStr == nullptr) { return; }
+    CopyFrom(_CStr);
 }
 
-TStr::TStr(const char* _CStr): Inner(nullptr) {
-	if (_CStr == nullptr) { return; }
-
-	const int Len = (int)strlen(_CStr);
-	if (Len > 0) {
-		Inner = new char[Len+1];
-		strcpy(Inner, _CStr);
-	}
+TStr::TStr(const char& Ch): ShortBuff(" "), Inner(ShortBuff) {
+    Inner[0] = Ch;
 }
 
-TStr::TStr(const char& Ch): Inner(nullptr) {
-    if (Ch != 0) {
-        Inner = new char[2];
-        Inner[0] = Ch; Inner[1] = 0;
+TStr::TStr(const TStr& Str): ShortBuff(), Inner(ShortBuff) {
+    CopyFrom(Str.CStr());
+}
+
+TStr::TStr(TStr&& Str): ShortBuff(), Inner(ShortBuff) {
+    if (Str.IsLong()) {
+        Inner = Str.Inner;
+        Str.Inner = Str.ShortBuff;
+    } else {
+        strcpy(Inner, Str.Inner);
     }
 }
 
-TStr::TStr(const TStr& Str): Inner(nullptr) {
-	if (!Str.Empty()) {
-		Inner = Str.CloneCStr();
-	}
+TStr::TStr(const TChA& ChA): ShortBuff(), Inner(ShortBuff) {
+    CopyFrom(ChA.CStr());
 }
 
-TStr::TStr(TStr&& Str): Inner(nullptr) {
-    Inner = Str.Inner;
-    // reset other
-    Str.Inner=nullptr;
+TStr::TStr(const TMem& Mem): ShortBuff(), Inner(ShortBuff) {
+    CopyFromMem(Mem(), Mem.Len());
 }
 
-TStr::TStr(const TChA& ChA): Inner(nullptr) {
-    if (!ChA.Empty()) {
-        Inner = new char[ChA.Len()+1];
-        strcpy(Inner, ChA.CStr());        
-    }
-}
-
-TStr::TStr(const TMem& Mem): Inner(nullptr) {
-    if (!Mem.Empty()) {
-		const int Len = Mem.Len();
-
-        Inner = new char[Len + 1];
-        memcpy(Inner, Mem(), Len);
-		Inner[Len] = 0;
-    }
-}
-
-TStr::TStr(const TSStr& SStr): Inner(nullptr) {
-	if (!SStr.Empty()) {
-		Inner = new char[SStr.Len()+1];
-		strcpy(Inner, SStr.CStr());
-	}
+TStr::TStr(const TSStr& SStr): ShortBuff(), Inner(ShortBuff) {
+    CopyFromMem(SStr.CStr(), SStr.Len());
 }
   
-TStr::TStr(const PSIn& SIn): Inner(nullptr) {
-	const int SInLen = SIn->Len();
-	if (SInLen > 0) {
-		Inner = new char[SInLen + 1];
-		SIn->GetBf(Inner, SInLen);
-		Inner[SInLen] = 0;
-	}
+TStr::TStr(const PSIn& SIn): ShortBuff(), Inner(ShortBuff) {
+    const int SInLen = SIn->Len();
+    Reserve(SInLen);
+    SIn->GetBf(Inner, SInLen);
+    Inner[SInLen] = 0;
 }
 
-TStr::TStr(TSIn& SIn, const bool& IsSmall): Inner(nullptr) {
-	if (IsSmall) {
-		if (SIn.PeekCh() == 0) {
+TStr::TStr(TSIn& SIn, const bool& IsSmall): ShortBuff(""), Inner(ShortBuff) {
+    if (IsSmall) {
+        if (SIn.PeekCh() == 0) {
             EAssert(SIn.GetCh() == 0);
         } else {
-			SIn.Load(Inner);
-		}
-	} else {
-		int BfL; SIn.Load(BfL);
-		if (BfL == 0) { 
+            const int Length = (int) SIn.GetCh();
+            Reserve(Length);
+            SIn.LoadBf(Inner, Length);
+            Inner[Length] = 0;
+        }
+    } else {
+        int BfL; SIn.Load(BfL);
+        if (BfL == 0) { 
             EAssert(SIn.GetCh() == 0); 
         } else {
-			SIn.Load(Inner, BfL, BfL);
-		}
-	}
-    // delete buffer and replace with null in case it's ""
-    if (Inner != nullptr && Inner[0] == 0) {
-		delete[] Inner;
-        Inner = nullptr;
+            Reserve(BfL);
+            SIn.LoadBf(Inner, BfL);
+            Inner[BfL] = 0;
+            SIn.Load(Inner, BfL, BfL);
+        }
     }
+}
+
+bool TStr::IsLong() const {
+    return Inner != ShortBuff;
+}
+
+bool TStr::IsShort() const {
+    return Inner == ShortBuff;
+}
+
+void TStr::Reserve(const int& NewLen) {
+    // check if this is a short string
+    if (Inner == ShortBuff) {       // this is a short string
+        if (NewLen > ShortLen) {    // short to long string
+            Inner = new char[NewLen+1];
+        }
+    }
+    else {                          // this is a long string
+        delete[] Inner;
+        
+        if (NewLen <= ShortLen) {   // resizing to short string
+            Inner = ShortBuff;
+        }
+        else {                      // long string of a different size
+            Inner = new char[NewLen+1];
+        }
+    }
+}
+
+void TStr::CopyFrom(const char* _CStr) {
+    if (_CStr == nullptr) {
+        Clr();
+    } else {
+        const int Len = strlen(_CStr);
+        Reserve(Len);
+        memcpy(Inner, _CStr, Len+1);
+    }
+}
+
+void TStr::CopyFromMem(const char* Mem, const int& Num) {
+    Reserve(Num);
+    memcpy(Inner, Mem, Num);
+    Inner[Num] = 0;
 }
 
 void TStr::Load(TSIn& SIn, const bool& IsSmall) {
@@ -989,8 +1001,15 @@ void TStr::Load(TSIn& SIn, const bool& IsSmall) {
 } 
  
 void TStr::Save(TSOut& SOut, const bool& IsSmall) const { 
-    if (IsSmall){ SOut.Save(CStr()); }
-    else { const int BfL = Len(); SOut.Save(BfL); SOut.Save(CStr(), BfL); }
+    if (IsSmall) {
+        const int Length = Len();
+        SOut.Save((char) Length);
+        SOut.PutBf(Inner, Length);
+    } else {
+        const int BfL = Len();
+        SOut.Save(BfL);
+        SOut.Save(CStr(), BfL); 
+    }
 }
 
 void TStr::LoadXml(const PXmlTok& XmlTok, const TStr& Nm){
@@ -1006,45 +1025,33 @@ void TStr::SaveXml(TSOut& SOut, const TStr& Nm) const {
 }
 
 TStr& TStr::operator=(const TStr& Str) {
-	if (this != &Str) {
-		Clr();
-		if (!Str.Empty()) {
-			Inner = Str.CloneCStr();
-		}
-	}
+    if (this == &Str) { return *this; }
+    CopyFrom(Str.Inner);
     return *this;
 }
 
 TStr& TStr::operator=(TStr&& Str) {
-	if (this != &Str) {
-		std::swap(Inner, Str.Inner);
-		Str.Clr();
-	}
+    if (this == &Str) { return *this; }
+    if (IsLong() && Str.IsLong()) {
+        std::swap(Inner, Str.Inner);
+    } else {
+        CopyFrom(Str.Inner);
+    }
     return *this;
 }
 
 TStr& TStr::operator=(const TChA& ChA) {
-	Clr();
-	if (!ChA.Empty()) {
-		Inner = new char[ChA.Len() + 1];
-		strcpy(Inner, ChA.CStr());
-	}
+    CopyFrom(ChA.CStr());
     return *this;
 }
 
 TStr& TStr::operator=(const char* CStr) {
-	Clr();
-	const int StrLen = (int)strlen(CStr);
-	if (StrLen > 0) {
-		Inner = new char[StrLen+1];
-		strcpy(Inner, CStr);
-	}
-	return *this;
+    CopyFrom(CStr);
+    return *this;
 }
 
 bool TStr::operator==(const char* _CStr) const { 
-	if (_CStr == nullptr) { return false; }
-	return (CStr() == _CStr) || (strcmp(CStr(), _CStr) == 0);
+    return strcmp(CStr(), _CStr) == 0;
 }
 
 bool TStr::operator<(const TStr& Str) const {
@@ -1052,8 +1059,8 @@ bool TStr::operator<(const TStr& Str) const {
 }
 
 char& TStr::operator[](const int& ChN) {
-	Assert( (0 <= ChN) && (ChN < Len()) );
-	return Inner[ChN];
+    Assert((0 <= ChN) && (ChN < Len()) );
+    return Inner[ChN];
 }
 
 void TStr::PutCh(const int& ChN, const char& Ch) {
@@ -1063,61 +1070,57 @@ void TStr::PutCh(const int& ChN, const char& Ch) {
 
 char TStr::GetCh(const int& ChN) const {
     // Assert index not negative, index not >= Length
-    Assert( (0 <= ChN) && (ChN < Len()) ); 
+    Assert((0 <= ChN) && (ChN < Len()) ); 
     return Inner[ChN];
 }
 
 char* TStr::CloneCStr() const {
-	const int Length = Len();
-	char* Bf = new char[Length+1];
-	if (Length > 0) {
-		strcpy(Bf, Inner);
-	} else {
-		Bf[0] = 0;
-	}
-	return Bf;
+    char* Bf = new char[Len()+1];
+    strcpy(Bf, Inner);
+    return Bf;
 }
 
 bool TStr::Empty() const {
-	 AssertR(Inner == nullptr || Inner[0] != 0, "TStr::Empty string is not nullptr. Fix immediately!");
-	 return  Inner == nullptr;
+    return Inner[0] == 0;
 }
 
 void TStr::Clr() {
-	if (Inner != nullptr) {
-		delete[] Inner;
-		Inner = nullptr;
-	}
+    if (IsLong()) {
+        delete[] Inner;
+        Inner = ShortBuff;
+    }
+    ShortBuff[0] = 0;
 }
 
 int TStr::GetMemUsed() const { 
-    return int(sizeof(TStr) + (Empty() ? 0 : (Len() + 1)));
+    if (IsShort()) { return sizeof(TStr); }
+    return sizeof(TStr) + Len() + 1;
 }
 
 int TStr::CmpI(const char* p, const char* r) {
-	if (!p){ return r ? (*r ? -1 : 0) : 0; }
-	if (!r){ return (*p ? 1 : 0); }
-	while (*p && *r){
-		int i = int(toupper(*p++)) - int(toupper(*r++));
-		if (i != 0){ return i; }
-	}
-	return int(toupper(*p++)) - int(toupper(*r++));
+    if (!p){ return r ? (*r ? -1 : 0) : 0; }
+    if (!r){ return (*p ? 1 : 0); }
+    while (*p && *r){
+        int i = int(toupper(*p++)) - int(toupper(*r++));
+        if (i != 0){ return i; }
+    }
+    return int(toupper(*p++)) - int(toupper(*r++));
 }
 
 bool TStr::IsUc() const {
-	const int StrLen = Len();
-	for (int ChN = 0; ChN<StrLen; ChN++){
-		if (('a' <= Inner[ChN]) && (Inner[ChN] <= 'z')){ return false; }
-	}
-	return true;
+    const int StrLen = Len();
+    for (int ChN = 0; ChN<StrLen; ChN++){
+        if (('a' <= Inner[ChN]) && (Inner[ChN] <= 'z')){ return false; }
+    }
+    return true;
 }
 
 TStr& TStr::ToUc() {
-	const int StrLen = Len();
-	for (int ChN = 0; ChN<StrLen; ChN++){
+    const int StrLen = Len();
+    for (int ChN = 0; ChN<StrLen; ChN++){
         Inner[ChN] = toupper(Inner[ChN]);
-	}
-	return *this;
+    }
+    return *this;
 }
 
 TStr TStr::GetUc() const {
@@ -1125,19 +1128,19 @@ TStr TStr::GetUc() const {
 }
 
 bool TStr::IsLc() const {
-	const int StrLen = Len();
-	for (int ChN = 0; ChN<StrLen; ChN++){
-		if (('A' <= Inner[ChN]) && (Inner[ChN] <= 'Z')){ return false; }
-	}
-	return true;
+    const int StrLen = Len();
+    for (int ChN = 0; ChN<StrLen; ChN++){
+        if (('A' <= Inner[ChN]) && (Inner[ChN] <= 'Z')){ return false; }
+    }
+    return true;
 }
 
 TStr& TStr::ToLc() {
-	const int StrLen = Len();
-	for (int ChN = 0; ChN<StrLen; ChN++){
+    const int StrLen = Len();
+    for (int ChN = 0; ChN<StrLen; ChN++){
         Inner[ChN] = tolower(Inner[ChN]);
-	}
-	return *this;
+    }
+    return *this;
 }
 
 TStr TStr::GetLc() const {
@@ -1145,19 +1148,19 @@ TStr TStr::GetLc() const {
 }
 
 TStr& TStr::ToCap() {
-	if (Empty()) { return *this; }
-	const int StrLen = Len();	
-	// copy first char in uppercase
-	Inner[0] = (char)toupper(Inner[0]);
-	// copy all other chars in lowercase
-	for (int ChN = 1; ChN < StrLen; ChN++){
-		Inner[ChN] = (char)tolower(Inner[ChN]);
-	}
-	return *this;
+    if (Empty()) { return *this; }
+    const int StrLen = Len();	
+    // copy first char in uppercase
+    Inner[0] = (char)toupper(Inner[0]);
+    // copy all other chars in lowercase
+    for (int ChN = 1; ChN < StrLen; ChN++){
+        Inner[ChN] = (char)tolower(Inner[ChN]);
+    }
+    return *this;
 }
 
 TStr TStr::GetCap() const{
-	return TStr(*this).ToCap();	
+    return TStr(*this).ToCap();	
 }
 
 TStr& TStr::ToTrunc() {
@@ -1194,7 +1197,6 @@ TStr TStr::GetHex() const {
   return TStr(ChA);  
 }
 
-
 TStr& TStr::FromHex() {
     *this = GetFromHex();
     return *this;
@@ -1204,34 +1206,22 @@ TStr TStr::GetFromHex() const {
   int StrLen=Len(); IAssert(StrLen%2==0);
   TChA ChA; int ChN=0;
   while (ChN<StrLen){
-	char MshCh = GetCh(ChN); ChN++;
-	char LshCh = GetCh(ChN); ChN++;
+    char MshCh = GetCh(ChN); ChN++;
+    char LshCh = GetCh(ChN); ChN++;
     uchar Ch=uchar(TCh::GetHex(MshCh)*16+TCh::GetHex(LshCh));
-	EAssertR(Ch != 0, "TStr::GetFromHex null terminator found! ");
+    EAssertR(Ch != 0, "TStr::GetFromHex null terminator found! ");
     ChA+=Ch;
   }
   return TStr(ChA);
 }
 
 TStr TStr::GetSubStr(const int& BChN, const int& EChN) const {
-	int StrLen = Len();
-	EAssertR(0 <= BChN && BChN <= EChN && EChN < StrLen, "TStr::GetSubStr index out of bounds");
-	int Chs = EChN - BChN + 1;
-	// initialize accordingly
-	char* Bf = nullptr;
-	if (Chs <= 0) {
-		// create empty string
-		return TStr();
-	}
-	else if (Chs == StrLen) {
-		// keep copy of everything
-		Bf = CloneCStr();//
-	}
-	else {
-		// get copy of a substring
-		Bf = new char[Chs + 1]; strncpy(Bf, CStr() + BChN, Chs); Bf[Chs] = 0;
-	}
-	return WrapCStr(Bf);
+    int StrLen = Len();
+    EAssertR(0 <= BChN && BChN <= EChN && EChN < StrLen, "TStr::GetSubStr index out of bounds");
+    const int Chs = EChN - BChN + 1;
+    TStr Result;
+    Result.CopyFromMem(CStr() + BChN, Chs);
+    return Result;
 }
 
 // safe version of GetSubStr(). 
@@ -1239,25 +1229,26 @@ TStr TStr::GetSubStr(const int& BChN, const int& EChN) const {
 // supports also negative indices (python like): 
 // GetSubStrSafe(0,-1) will return all but last char
 TStr TStr::GetSubStrSafe(const int& BChN, const int& EChN) const {
-	int StrLen = Len();
-	int StartN;
-	if (BChN <= -StrLen)
-		StartN = 0;
-	else if (BChN < 0)
-		StartN = StrLen + BChN;
-	else
-		StartN = BChN;
-	int EndN;
-	if (EChN < 0)
-		EndN = StrLen + EChN - 1;
-	else
-		EndN = EChN >= StrLen ? StrLen - 1 : EChN;
+    int StrLen = Len();
+    int StartN;
+    if (BChN <= -StrLen)
+        StartN = 0;
+    else if (BChN < 0)
+        StartN = StrLen + BChN;
+    else
+        StartN = BChN;
+    int EndN;
+    if (EChN < 0)
+        EndN = StrLen + EChN - 1;
+    else
+        EndN = EChN >= StrLen ? StrLen - 1 : EChN;
 
-	if (!(0 <= StartN && StartN <= EndN && EndN < StrLen))
-		return TStr();
-	return GetSubStr(StartN, EndN);
+    if (!(0 <= StartN && StartN <= EndN && EndN < StrLen))
+        return TStr();
+    return GetSubStr(StartN, EndN);
 }
 
+// XXX could be optimized
 void TStr::InsStr(const int& BChN, const TStr& Str) {
     const int ThisLen = Len();
     EAssert((0<=BChN)&&(BChN<=ThisLen));
@@ -1276,6 +1267,7 @@ void TStr::InsStr(const int& BChN, const TStr& Str) {
     *this = ChA;
 }
 
+// XXX could be optimized
 void TStr::DelChAll(const char& DelCh) {
     const int ThisLen = Len();
     TChA ChA = TChA(ThisLen);
@@ -1287,37 +1279,37 @@ void TStr::DelChAll(const char& DelCh) {
 }
 
 void TStr::DelSubStr(const int& BChN, const int& EChN) {
-	int StrLen = Len();
-	EAssertR(0 <= BChN && BChN <= EChN && EChN < StrLen, "TStr::DelSubStr index out of bounds");
-	
+    int StrLen = Len();
+    EAssertR(0 <= BChN && BChN <= EChN && EChN < StrLen, "TStr::DelSubStr index out of bounds");
+    
     int Chs = Len() - (EChN - BChN + 1);
     if (Chs == 0) { 
         // nothing left after delete, clear it all
         Clr();
     } else if (Chs < Len()) {
         // actual substring
-        char* Bf=new char[Chs + 1];
+        TStr Temp;  Temp.Reserve(Chs);
         // copy before
-        strncpy(Bf, CStr(), BChN);
+        strncpy(Temp.Inner, CStr(), BChN);
         // copy after
-        strncpy(Bf+BChN, CStr()+EChN+1, Len()-EChN-1);
+        strncpy(Temp.Inner+BChN, CStr()+EChN+1, Len()-EChN-1);
         // we are done, just replace current
-        Bf[Chs]=0;
-        *this = WrapCStr(Bf);
+        Temp.Inner[Chs]=0;
+        std::swap(*this, Temp);
     }
 }
 
 bool TStr::DelStr(const TStr& Str) {
-	int ChN = SearchStr(Str);
-	if (ChN != -1){
-		DelSubStr(ChN, ChN + Str.Len() - 1);
+    int ChN = SearchStr(Str);
+    if (ChN != -1){
+        DelSubStr(ChN, ChN + Str.Len() - 1);
         return true;
-	}
+    }
     return false;
 }
 
 int TStr::DelStrAll(const TStr& Str) {
-	return ChangeStrAll(Str, "");
+    return ChangeStrAll(Str, "");
 }
 
 TStr TStr::LeftOf(const char& SplitCh) const {
@@ -1349,101 +1341,90 @@ TStr TStr::RightOfLast(const char& SplitCh) const {
 }
 
 void TStr::SplitLeftOfRightOf(TStr& LStr, const int& LeftOfChN, const int& RightOfChN, TStr& RStr) const {
-	const int StrLen = Len();
+    const int StrLen = Len();
 
-	EAssertR(LeftOfChN >= 0 && LeftOfChN <= RightOfChN && RightOfChN < StrLen, "Splitting index should be greater than 0 and less than length!");
+    EAssertR(LeftOfChN >= 0 && LeftOfChN <= RightOfChN && RightOfChN < StrLen, "Splitting index should be greater than 0 and less than length!");
 
-	// clear the left and right strings
-	LStr.Clr();
-	RStr.Clr();
+    if (Empty()) {
+        LStr.Clr();
+        RStr.Clr();
+        return;
+    }
 
-	if (Empty()) { return; }
+    const int LeftLen = LeftOfChN;
+    const int RightLen = StrLen - RightOfChN - 1;
 
-	const char* InnerPt = CStr();
-
-	const int LeftLen = LeftOfChN;
-	const int RightLen = StrLen - RightOfChN - 1;
-
-	// copy into left and right
-	// if the length of any of the strings is 0 than leave it empty
-	if (LeftLen > 0) {
-		LStr.Inner = new char[LeftLen + 1];
-		memcpy(LStr.Inner, InnerPt, LeftLen);
-		LStr.Inner[LeftLen] = 0;
-	}
-	if (RightLen > 0) {
-		RStr.Inner = new char[RightLen + 1];
-		memcpy(RStr.Inner, InnerPt + RightOfChN + 1, RightLen);
-		RStr.Inner[RightLen] = 0;
-	}
+    // copy into left and right
+    LStr.CopyFromMem(Inner, LeftLen);
+    RStr.CopyFromMem(Inner + RightOfChN + 1, RightLen);
 }
 
 void TStr::SplitOnChN(TStr& LStr, const int& ChN, TStr& RStr) const {
-	SplitLeftOfRightOf(LStr, ChN, ChN, RStr);
+    SplitLeftOfRightOf(LStr, ChN, ChN, RStr);
 }
 
 void TStr::SplitOnCh(TStr& LStr, const char& SplitCh, TStr& RStr) const {
-	LStr.Clr();
-	RStr.Clr();
+    LStr.Clr();
+    RStr.Clr();
 
-	// check if the string is empty
-	if (Empty()) { return; }
+    // check if the string is empty
+    if (Empty()) { return; }
 
-	const char* InnerPt = CStr();
+    const char* InnerPt = CStr();
 
-	// find the pointer to the delimiter
-	const char* ChPtr = strchr(InnerPt, SplitCh);
+    // find the pointer to the delimiter
+    const char* ChPtr = strchr(InnerPt, SplitCh);
 
-	// if the character was not found than return this in the left string
-	if (ChPtr == nullptr) {
-		LStr = *this;
-		return;
-	}
+    // if the character was not found than return this in the left string
+    if (ChPtr == nullptr) {
+        LStr = *this;
+        return;
+    }
 
-	// split
-	SplitOnChN(LStr, (int)(ChPtr - InnerPt), RStr);
+    // split
+    SplitOnChN(LStr, (int)(ChPtr - InnerPt), RStr);
 }
 
 void TStr::SplitOnStr(TStr& LStr, const TStr& SplitStr, TStr& RStr) const {
-	LStr.Clr();
-	RStr.Clr();
+    LStr.Clr();
+    RStr.Clr();
 
-	// check if the string is empty
-	if (Empty()) { return; }
+    // check if the string is empty
+    if (Empty()) { return; }
 
-	const char* InnerPt = CStr();
+    const char* InnerPt = CStr();
 
-	const char* MatchPt = strstr(InnerPt, SplitStr.CStr());
+    const char* MatchPt = strstr(InnerPt, SplitStr.CStr());
 
-	if (MatchPt == nullptr || SplitStr.Empty()) {
-		LStr = *this;
-		return;
-	}
+    if (MatchPt == nullptr || SplitStr.Empty()) {
+        LStr = *this;
+        return;
+    }
 
-	const int MatchIdx = (int)(MatchPt - InnerPt);
+    const int MatchIdx = (int)(MatchPt - InnerPt);
 
-	SplitLeftOfRightOf(LStr, MatchIdx, MatchIdx + SplitStr.Len() - 1, RStr);
+    SplitLeftOfRightOf(LStr, MatchIdx, MatchIdx + SplitStr.Len() - 1, RStr);
 }
 
 void TStr::SplitOnLastCh(TStr& LStr, const char& SplitCh, TStr& RStr) const {
-	LStr.Clr();
-	RStr.Clr();
-	// check if the string is empty
-	if (Empty()) { return; }
+    LStr.Clr();
+    RStr.Clr();
+    // check if the string is empty
+    if (Empty()) { return; }
 
-	const char* InnerPt = CStr();
+    const char* InnerPt = CStr();
 
-	// find the pointer to the delimiter
-	const char* ChPtr = strrchr(InnerPt, SplitCh);
+    // find the pointer to the delimiter
+    const char* ChPtr = strrchr(InnerPt, SplitCh);
 
-	// if the character was not found than return this in the right string
-	if (ChPtr == nullptr) {
-		RStr = *this;
-		return;
-	}
+    // if the character was not found than return this in the right string
+    if (ChPtr == nullptr) {
+        RStr = *this;
+        return;
+    }
 
-	// split
-	SplitOnChN(LStr, (int)(ChPtr - InnerPt), RStr);
+    // split
+    SplitOnChN(LStr, (int)(ChPtr - InnerPt), RStr);
 }
 
 void TStr::SplitOnAllCh(const char& SplitCh, TStrV& StrV, const bool& SkipEmpty) const {
@@ -1536,12 +1517,12 @@ void TStr::SplitOnStr(const TStr& SplitStr, TStrV& StrV) const {
   if (StrLen == 0) { return; }
   while (ChN < StrLen && (ChN = SearchStr(SplitStr, ChN)) != -1){
     // extract & add string
-	  if (ChN - 1 >= 0 && ChN - 1 < StrLen) {
-		  TStr SubStr = GetSubStr(PrevChN, ChN - 1);
-		  StrV.Add(SubStr);
-	  }
-	PrevChN = ChN;
-	ChN += SplitStrLen;
+      if (ChN - 1 >= 0 && ChN - 1 < StrLen) {
+          TStr SubStr = GetSubStr(PrevChN, ChN - 1);
+          StrV.Add(SubStr);
+      }
+    PrevChN = ChN;
+    ChN += SplitStrLen;
   }
   // add last string
   TStr LastSubStr=GetSubStr(PrevChN, StrLen-1);
@@ -1549,19 +1530,19 @@ void TStr::SplitOnStr(const TStr& SplitStr, TStrV& StrV) const {
 }
 
 TStr TStr::Left(const int& EChN) const {
-	if (EChN == 0) { return ""; }
-	return EChN>=0 ? GetSubStr(0, EChN-1) : GetSubStr(0, Len()+EChN-1);
+    if (EChN == 0) { return ""; }
+    return EChN>=0 ? GetSubStr(0, EChN-1) : GetSubStr(0, Len()+EChN-1);
 }
 
 int TStr::CountCh(const char& Ch, const int& BChN) const {
-	const int ThisLen = Len();	
-	if(ThisLen == 0) { return 0; }
-	EAssertR(BChN >= 0 && BChN < ThisLen, "TStr::CountCh index BChN out of bounds!");
+    const int ThisLen = Len();	
+    if(ThisLen == 0) { return 0; }
+    EAssertR(BChN >= 0 && BChN < ThisLen, "TStr::CountCh index BChN out of bounds!");
 
-	const char* ThisBf = CStr();
-	int Chs = 0;
+    const char* ThisBf = CStr();
+    int Chs = 0;
 
-	for (int ChN = BChN; ChN<ThisLen; ChN++) {
+    for (int ChN = BChN; ChN<ThisLen; ChN++) {
     if (ThisBf[ChN]==Ch) { Chs++; }
   }
   return Chs;
@@ -1612,131 +1593,130 @@ int TStr::SearchStr(const TStr& Str, const int& BChN) const {
 }
 
 bool TStr::StartsWith(const char *Str) const {
-	const int OtherLen = (int)strlen(Str);
-	const int ThisLen = Len();
-	if (OtherLen > ThisLen || ThisLen == 0) { return false; }
+    const int OtherLen = (int)strlen(Str);
+    const int ThisLen = Len();
+    if (OtherLen > ThisLen || ThisLen == 0) { return false; }
 
-	int Cmp = strncmp(Str, CStr(), OtherLen);
-	return Cmp == 0;
+    int Cmp = strncmp(Str, CStr(), OtherLen);
+    return Cmp == 0;
 }
 
 bool TStr::EndsWith(const char *Str) const {
-	const int OtherLen = (int)strlen(Str);
-	const int ThisLen = Len();
-	if (OtherLen > ThisLen) {
-		// too long to be a suffix anyway
-		return false;
-	} else {
-		// move to the point in the buffer where we would expect the suffix to be
-		const char *ending = CStr() + ThisLen - OtherLen;
-		int cmp = strncmp(Str, ending, OtherLen);
-		return cmp == 0;
-	}
+    const int OtherLen = (int)strlen(Str);
+    const int ThisLen = Len();
+    if (OtherLen > ThisLen) {
+        // too long to be a suffix anyway
+        return false;
+    } else {
+        // move to the point in the buffer where we would expect the suffix to be
+        const char *ending = CStr() + ThisLen - OtherLen;
+        int cmp = strncmp(Str, ending, OtherLen);
+        return cmp == 0;
+    }
 }
 
 int TStr::ChangeCh(const char& SrcCh, const char& DstCh, const int& BChN) {
-	AssertR(SrcCh != '\0' && DstCh != '\0', "TStr::ChangeCh: source and destination character should not be the terminator char!");
-	int ChN = SearchCh(SrcCh, BChN);
-	if (ChN != -1) { PutCh(ChN, DstCh); }
-	return ChN;
+    AssertR(SrcCh != '\0' && DstCh != '\0', "TStr::ChangeCh: source and destination character should not be the terminator char!");
+    int ChN = SearchCh(SrcCh, BChN);
+    if (ChN != -1) { PutCh(ChN, DstCh); }
+    return ChN;
 }
 
 int TStr::ChangeChAll(const char& SrcCh, const char& DstCh) {
-	if (Empty()) { return 0; }
-	int FirstChN = SearchCh(SrcCh);
-	if (FirstChN == -1){
-		return 0;
-	} else {
-		const int StrLen = Len(); int Changes = 0;
-		for (int ChN = FirstChN; ChN < StrLen; ChN++){
+    if (Empty()) { return 0; }
+    int FirstChN = SearchCh(SrcCh);
+    if (FirstChN == -1){
+        return 0;
+    } else {
+        const int StrLen = Len(); int Changes = 0;
+        for (int ChN = FirstChN; ChN < StrLen; ChN++){
             if (GetCh(ChN) == SrcCh) { PutCh(ChN, DstCh); Changes++; }
-		}
-		return Changes;
-	}
+        }
+        return Changes;
+    }
 }
 
 int TStr::ChangeStr(const TStr& SrcStr, const TStr& DstStr, const int& BChN) {
-	if (Empty() && BChN == 0) { return -1; }
-	const int ChN = SearchStr(SrcStr, BChN);
-	if (ChN != -1){		
+    if (Empty() && BChN == 0) { return -1; }
+    const int ChN = SearchStr(SrcStr, BChN);
+    if (ChN != -1){		
         DelSubStr(ChN, ChN + SrcStr.Len() - 1);
         InsStr(ChN, DstStr);
-	}
+    }
     return ChN;
 }
 
 int TStr::ChangeStrAll(const TStr& SrcStr, const TStr& DstStr) {
-	if (Empty() || SrcStr.Empty()) { return 0; }
+    if (Empty() || SrcStr.Empty()) { return 0; }
 
-	const int Length = Len();
-	const int SrcLen = SrcStr.Len();
-	const int DstLen = DstStr.Len();
+    const int Length = Len();
+    const int SrcLen = SrcStr.Len();
+    const int DstLen = DstStr.Len();
 
-	const char* InnerPt = CStr();
-	const char* SrcCStr = SrcStr.CStr();
-	const char* DstCStr = DstStr.CStr();
+    const char* InnerPt = CStr();
+    const char* SrcCStr = SrcStr.CStr();
+    const char* DstCStr = DstStr.CStr();
 
-	// find how many times SrcStr appears in this string
-	const char* CurrPos = Inner;
-	const char* NextHit;
+    // find how many times SrcStr appears in this string
+    const char* CurrPos = Inner;
+    const char* NextHit;
 
-	int NMatches = 0;
-	while ((NextHit = strstr(CurrPos, SrcCStr)) != nullptr) {
-		NMatches++;
-		CurrPos = NextHit + SrcLen;
-	}
+    int NMatches = 0;
+    while ((NextHit = strstr(CurrPos, SrcCStr)) != nullptr) {
+        NMatches++;
+        CurrPos = NextHit + SrcLen;
+    }
 
-	// create a new string
-	char* ResStr = new char[Length + NMatches*(DstLen - SrcLen) + 1];
+    TStr Temp;  Temp.Reserve(Length + NMatches*(DstLen - SrcLen));
 
-	// iterate through the string, instead of copying source copy destination
-	int i = 0;	// index in the source string
-	int j = 0;	// index in the result string
+    // iterate through the string, instead of copying source copy destination
+    int i = 0;	// index in the source string
+    int j = 0;	// index in the result string
 
-	int SeqLen;
+    int SeqLen;
 
-	// find next hit, copy everything between the current position and the hit,
-	// then copy the dest string
-	while ((NextHit = strstr(InnerPt + i, SrcCStr)) != nullptr) {
-		SeqLen = (int)(NextHit - (InnerPt + i));
-		// copy the chars in between the hits
-		memcpy(ResStr + j, InnerPt + i, SeqLen);
+    // find next hit, copy everything between the current position and the hit,
+    // then copy the dest string
+    while ((NextHit = strstr(InnerPt + i, SrcCStr)) != nullptr) {
+        SeqLen = (int)(NextHit - (InnerPt + i));
+        // copy the chars in between the hits
+        memcpy(Temp.Inner + j, InnerPt + i, SeqLen);
 
-		// increase positions
-		i += SeqLen;
-		j += SeqLen;
+        // increase positions
+        i += SeqLen;
+        j += SeqLen;
 
-		// copy the dst string
-		memcpy(ResStr + j, DstCStr, DstLen);
+        // copy the dst string
+        memcpy(Temp.Inner + j, DstCStr, DstLen);
 
-		// increase positions
-		i += SrcLen;
-		j += DstLen;
-	}
+        // increase positions
+        i += SrcLen;
+        j += DstLen;
+    }
 
-	// copy what is after the last match
-	memcpy(ResStr + j, InnerPt + i, Length - i);
+    // copy what is after the last match
+    memcpy(Temp.Inner + j, InnerPt + i, Length - i);
 
-	// insert null character
-	ResStr[Length + NMatches*(DstLen - SrcLen)] = 0;
-	// replace with the new string
-	*this = WrapCStr(ResStr);   
+    // insert null character
+    Temp.Inner[Length + NMatches*(DstLen - SrcLen)] = 0;
+    // replace with the new string
+    std::swap(*this, Temp);
     // return number of changes
     return NMatches;
 }
 
 TStr TStr::Reverse() const {
-	const int ThisLen = Len();
+    const int ThisLen = Len();
     // reserve place for reverse
-	char* Reversed = new char[ThisLen+1];
+    TStr Reversed;  Reversed.Reserve(ThisLen);
     // do the reversing
     for (int ChN = 0; ChN < ThisLen; ChN++) {
-		Reversed[ChN] = Inner[ThisLen - ChN - 1];
-	}
+        Reversed.Inner[ChN] = Inner[ThisLen - ChN - 1];
+    }
     // finish
-	Reversed[ThisLen] = 0;
+    Reversed.Inner[ThisLen] = 0;
     // create new string from it
-	return WrapCStr(Reversed);
+    return Reversed;
 }
 
 int TStr::GetPrimHashCd() const {
@@ -1758,15 +1738,15 @@ bool TStr::IsBool(bool& Val) const {
 }
 
 bool TStr::IsInt(const bool& Check, const int& MnVal, const int& MxVal, int& Val) const {
-	int64 _Val;
-	// assign and check for overflow
-	return IsInt64(Check, MnVal, MxVal, _Val) && (int64)(Val = (int)_Val) == _Val;
+    int64 _Val;
+    // assign and check for overflow
+    return IsInt64(Check, MnVal, MxVal, _Val) && (int64)(Val = (int)_Val) == _Val;
 }
 
 bool TStr::IsUInt(const bool& Check, const uint& MnVal, const uint& MxVal, uint& Val) const {
-	TChRet Ch(TStrIn::New(*this, false));
-	Ch.GetCh();
-	return IsUInt(Ch, Check, MnVal, MxVal, Val);
+    TChRet Ch(TStrIn::New(*this, false));
+    Ch.GetCh();
+    return IsUInt(Ch, Check, MnVal, MxVal, Val);
 }
 
 bool TStr::IsHexInt( const bool& Check, const int& MnVal, const int& MxVal, int& Val) const {
@@ -1792,36 +1772,36 @@ bool TStr::IsHexInt( const bool& Check, const int& MnVal, const int& MxVal, int&
 }
 
 bool TStr::IsInt64(const bool& Check, const int64& MnVal, const int64& MxVal, int64& Val) const {
-	EAssert(!Check || (Check && MnVal <= MxVal));
-	// parsing format {ws} [+/-] +{ddd}
-	TChRet Ch(TStrIn::New(*this, false));
+    EAssert(!Check || (Check && MnVal <= MxVal));
+    // parsing format {ws} [+/-] +{ddd}
+    TChRet Ch(TStrIn::New(*this, false));
 
-	while (TCh::IsWs(Ch.GetCh())) {}
+    while (TCh::IsWs(Ch.GetCh())) {}
 
-	bool IsInt;
-	uint64 UIntVal;
+    bool IsInt;
+    uint64 UIntVal;
 
-	if (Ch() == '-') {
-		Ch.GetCh();
-		IsInt = IsUInt64(Ch, true, 0, 9223372036854775808ul, UIntVal);
-		Val = -1l * UIntVal;
-	} else {
-		if (Ch() == '+') { Ch.GetCh(); }
-		IsInt = IsUInt64(Ch, true, 0, 9223372036854775807ul, UIntVal);
-		Val = UIntVal;
-	}
+    if (Ch() == '-') {
+        Ch.GetCh();
+        IsInt = IsUInt64(Ch, true, 0, 9223372036854775808ul, UIntVal);
+        Val = -1l * UIntVal;
+    } else {
+        if (Ch() == '+') { Ch.GetCh(); }
+        IsInt = IsUInt64(Ch, true, 0, 9223372036854775807ul, UIntVal);
+        Val = UIntVal;
+    }
 
-	// check
-	if (!IsInt) { return false; }
-	if (Check && (Val < MnVal || Val > MxVal)) { return false; }
+    // check
+    if (!IsInt) { return false; }
+    if (Check && (Val < MnVal || Val > MxVal)) { return false; }
 
-	return true;
+    return true;
 }
 
 bool TStr::IsUInt64(const bool& Check, const uint64& MnVal, const uint64& MxVal, uint64& Val) const {
-	TChRet Ch(TStrIn::New(*this, false));
-	Ch.GetCh();
-	return IsUInt64(Ch, Check, MnVal, MxVal, Val);
+    TChRet Ch(TStrIn::New(*this, false));
+    Ch.GetCh();
+    return IsUInt64(Ch, Check, MnVal, MxVal, Val);
 }
 
 bool TStr::IsHexInt64(
@@ -1996,10 +1976,10 @@ TStr TStr::GetFMid() const {
     if (ThisBf[ChN]=='.'){
       int EChN= --ChN;
       while ((ChN>=0)&&(ThisBf[ChN]!='/')&&(ThisBf[ChN]!='\\')){ChN--;}
-	  if (ChN + 1 > EChN) { return TStr(); }
+      if (ChN + 1 > EChN) { return TStr(); }
       return GetSubStr(ChN+1, EChN);
     } else {
-		if (ChN + 1 > ThisLen - 1) { return TStr(); }
+        if (ChN + 1 > ThisLen - 1) { return TStr(); }
       return GetSubStr(ChN+1, ThisLen - 1);
     }
   }
@@ -2011,8 +1991,8 @@ TStr TStr::GetFExt() const {
   while ((ChN>=0)&&(ThisBf[ChN]!='/')&&(ThisBf[ChN]!='\\')&&
    (ThisBf[ChN]!='.')){ChN--;}
   if ((ChN>=0)&&(ThisBf[ChN]=='.')){
-	  if (ChN > Len() - 1) { return TStr(); }
-	  return GetSubStr(ChN, Len()-1);
+      if (ChN > Len() - 1) { return TStr(); }
+      return GetSubStr(ChN, Len()-1);
   } else {return TStr();}
 }
 
@@ -2171,107 +2151,108 @@ TStr TStr::Fmt(const char *FmtStr, ...){
 
 TStr TStr::GetSpaceStr(const int& Spaces) {
     EAssert(Spaces >= 0);
-    if (Spaces == 0) { return TStr(); }
-    // we have more, go for it
-	char *NewBf = new char[Spaces + 1];
-	for (int SpaceN = 0; SpaceN < Spaces; SpaceN++) { 
-        NewBf[SpaceN] = ' ';
+    TStr SpaceStr;
+    SpaceStr.Reserve(Spaces);
+    for (int SpaceN = 0; SpaceN < Spaces; SpaceN++) { 
+        SpaceStr.Inner[SpaceN] = ' ';
     }
-	NewBf[Spaces] = 0; 
-	return WrapCStr(NewBf);
+    SpaceStr.Inner[Spaces] = 0; 
+    return SpaceStr;
 }
 
 TStr operator+(const TStr& LStr, const char* RCStr) {
-	const size_t LeftLen = LStr.Len();
-	const size_t RightLen = ((RCStr == nullptr) ? 0 : strlen(RCStr));
+    const size_t LeftLen = LStr.Len();
+    const size_t RightLen = ((RCStr == nullptr) ? 0 : strlen(RCStr));
 
-	// check if any of the strings are empty
-	if (LeftLen == 0) { return TStr(RCStr); }
-	else if (RightLen == 0) { return LStr; }
-	else {
-		const char* LCStr = LStr.CStr();
+    // check if any of the strings are empty
+    if (LeftLen == 0) { return TStr(RCStr); }
+    else if (RightLen == 0) { return LStr; }
+    else {
+        const char* LCStr = LStr.CStr();
 
-		// allocate memory
-		char* ConcatStr = new char[LeftLen + RightLen + 1];
+        // allocate memory
+        TStr ConcatStr; ConcatStr.Reserve(LeftLen + RightLen);
 
-		// copy the two strings into the new memory
-		memcpy(ConcatStr, LCStr, LeftLen);
-		memcpy(ConcatStr + LeftLen, RCStr, RightLen);
+        // copy the two strings into the new memory
+        memcpy(ConcatStr.Inner, LCStr, LeftLen);
+        memcpy(ConcatStr.Inner + LeftLen, RCStr, RightLen);
 
-		// finish the new string
-		ConcatStr[LeftLen + RightLen] = 0;
+        // finish the new string
+        ConcatStr.Inner[LeftLen + RightLen] = 0;
 
-		// return
-		return TStr::WrapCStr(ConcatStr);
-	}
+        // return
+        return ConcatStr;
+    }
 }
 
 TStr operator+(const TStr& LStr, const TStr& RStr) {
-	return operator+(LStr, RStr.CStr());
+    return operator+(LStr, RStr.CStr());
 }
 
+
 TStr operator+(const TStr& LStr, const char Ch) {
-	const size_t LeftLen = LStr.Len();
-	const size_t RightLen = 1;
+    const size_t LeftLen = LStr.Len();
+    const size_t RightLen = 1;
 
-	// check if any of the strings are empty
-	if (LeftLen == 0) { return TStr(Ch); } 
-	else if (RightLen == 0) { return LStr; } 
-	else {
-		const char* LCStr = LStr.CStr();
+    // check if any of the strings are empty
+    if (LeftLen == 0) { return TStr(Ch); } 
+    else if (RightLen == 0) { return LStr; } 
+    else {
+        const char* LCStr = LStr.CStr();
 
-		// allocate memory
-		char* ConcatStr = new char[LeftLen + RightLen + 1];
+        // allocate memory
+        TStr ConcatStr;   ConcatStr.Reserve(LeftLen + RightLen + 1);
 
-		// copy the two strings into the new memory
-		memcpy(ConcatStr, LCStr, LeftLen);
-		memcpy(ConcatStr + LeftLen, &Ch, RightLen);
+        // copy the two strings into the new memory
+        memcpy(ConcatStr.Inner, LCStr, LeftLen);
+        memcpy(ConcatStr.Inner + LeftLen, &Ch, RightLen);
 
-		// finish the new string
-		ConcatStr[LeftLen + RightLen] = 0;
+        // finish the new string
+        ConcatStr.Inner[LeftLen + RightLen] = 0;
 
-		// return
-		return TStr::WrapCStr(ConcatStr);
-	}
+        // return
+        return ConcatStr;
+    }
 }
 
 bool TStr::IsUInt(TChRet& Ch, const bool& Check, const uint& MnVal, const uint& MxVal, uint& Val) {
-	uint64 _Val;
-	// assign and check for overflow
-	return IsUInt64(Ch, Check, MnVal, MxVal, _Val) && (uint64)(Val = (uint)_Val) == _Val;
+    uint64 _Val;
+    // assign and check for overflow
+    return IsUInt64(Ch, Check, MnVal, MxVal, _Val) && (uint64)(Val = (uint)_Val) == _Val;
 }
 
 bool TStr::IsUInt64(TChRet& Ch, const bool& Check, const uint64& MnVal, const uint64& MxVal, uint64& Val) {
-	EAssert(!Check || (Check && MnVal <= MxVal));
+    EAssert(!Check || (Check && MnVal <= MxVal));
 
-	uint64 _Val=0;
-	while (TCh::IsWs(Ch())) {
-		Ch.GetCh();
-	}
+    uint64 _Val=0;
+    while (TCh::IsWs(Ch())) {
+        Ch.GetCh();
+    }
 
-	if (Ch()=='+'){Ch.GetCh();}
-	if (!TCh::IsNum(Ch())){return false;}
-	_Val=TCh::GetNum(Ch());
+    if (Ch()=='+'){Ch.GetCh();}
+    if (!TCh::IsNum(Ch())){return false;}
+    _Val=TCh::GetNum(Ch());
 
-	const uint64 MxBy10 = Check ? MxVal / 10 : TUInt64::Mx / 10;
-	const uint64 MxBy10Rem = Check ? MxVal % 10 : TUInt64::Mx % 10;
+    const uint64 MxBy10 = Check ? MxVal / 10 : TUInt64::Mx / 10;
+    const uint64 MxBy10Rem = Check ? MxVal % 10 : TUInt64::Mx % 10;
 
-	uint ChNum;
-	while (TCh::IsNum(Ch.GetCh())) {
-		ChNum = TCh::GetNum(Ch());
+    uint ChNum;
+    while (TCh::IsNum(Ch.GetCh())) {
+        ChNum = TCh::GetNum(Ch());
 
-		// check for overflow
-		if (_Val > MxBy10 || (_Val == MxBy10 && ChNum > MxBy10Rem)) {
-			return false;
-		}
+        // check for overflow
+        if (_Val > MxBy10 || (_Val == MxBy10 && ChNum > MxBy10Rem)) {
+            return false;
+        }
 
-		// increase the sum
-		_Val = 10*_Val + ChNum;
-	}
+        // increase the sum
+        _Val = 10*_Val + ChNum;
+    }
 
-	if (Check && _Val < MnVal){return false;}
-	if (Ch.Eof()){Val=_Val; return true;} else {return false;}
+    if (Check && _Val < MnVal){return false;}
+    if (Ch.Eof()){Val=_Val; return true;} else {return false;}
 }
+
 
 /////////////////////////////////////////////////
 // Input-String

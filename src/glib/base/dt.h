@@ -508,22 +508,26 @@ class TStr;
 template <class TVal, class TSizeTy> class TVec;
 typedef TVec<TStr, int> TStrV;
 
+/// String
 class TStr{
 public:
   typedef const char* TIter;  //!< Random access iterator.
 private:
+  const static int ShortLen = 15;
   /// Used to construct empty strings ("") to be returned by CStr()
-  const static char EmptyStr;
-  /// String
+  /* const static char EmptyStr; */
+  /// a buffer used to store short strings
+  char ShortBuff[ShortLen+1];    // leave space for the terminating 0
+  /// c-style string, when the length of the string is <= ShortLen it points to ShortBuff
   char* Inner;
 
   /// Wraps the char pointer with a new string. The char pointer is NOT
   /// copied and the new string becomes responsible for deleting it.
-  static TStr WrapCStr(char* CStr);
+  /* static TStr WrapCStr(char* CStr); */
 
 public:
   /// Empty String Constructor
-  TStr(): Inner(nullptr) {}
+  TStr();
   /// C-String constructor
   TStr(const char* CStr);
   /// 1 char constructor
@@ -544,16 +548,24 @@ public:
   /// We only delete when not empty
   ~TStr() { Clr(); }
 
+private:
+  bool IsLong() const;
+  bool IsShort() const;
+  void Reserve(const int&);
+  void CopyFrom(const char*);
+  void CopyFromMem(const char*, const int&);
+public:
+
   /// Returns an iterator pointing to the first element in the string.
-  TIter BegI() const { return Empty() ? &EmptyStr : Inner; }
+  TIter BegI() const { return Inner; }
   /// Returns an iterator pointing to the first element in the string (used by C++11)
-  TIter begin() const { return Empty() ? &EmptyStr : Inner; }
+  TIter begin() const { return Inner; }
   /// Returns an iterator referring to the past-the-end element in the string.
-  TIter EndI() const { return Empty() ? &EmptyStr : Inner + Len(); }
+  TIter EndI() const { return Inner + Len(); }
   /// Returns an iterator referring to the past-the-end element in the string (used by C++11))
-  TIter end() const { return Empty() ? &EmptyStr : Inner + Len(); }
+  TIter end() const { return Inner + Len(); }
   /// Returns an iterator an element at position \c ValN.
-  TIter GetI(const int ValN) const { return Empty() ? &EmptyStr : Inner + ValN; }
+  TIter GetI(const int ValN) const { return Inner + ValN; }
 
   /// Deserialize TStr from stream, when IsSmall, the string is saved as CStr,
   /// otherwise the format is first the length and then the data including last \0
@@ -601,7 +613,7 @@ public:
   char& operator[](const int& ChN);
 
   /// Get the inner C-String
-  const char* CStr() const { return Empty() ? &EmptyStr : Inner; }
+  const char* CStr() const { return Inner; }
   /// Return a COPY of the string as a C String (char array)
   char* CloneCStr() const;
   /// Set character to given value (not thread safe)
@@ -611,7 +623,7 @@ public:
   /// Get last character in string (before null terminator)
   char LastCh() const {return GetCh(Len()-1);}
   /// Get String Length (null terminator not included)
-  int Len() const { return Empty() ? 0 : (int)strlen(Inner); }
+  int Len() const { return strlen(Inner); }
   /// Check if this is an empty string
   bool Empty() const;
   /// Deletes the char pointer if it is not nullptr. (not thread safe)
