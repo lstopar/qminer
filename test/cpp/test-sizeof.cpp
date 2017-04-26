@@ -21,6 +21,8 @@
 #endif
 #endif
 
+const int ShortStringBuffLen = 16;
+
 ///////////////////////////////////////////////////////////////////////////////
 
 TEST(sizeof, BasicTypes) {
@@ -41,7 +43,7 @@ TEST(sizeof, BasicStructures) {
     ASSERT_EQ(sizeof(TStrHash<TInt>), 56);
     ASSERT_EQ(sizeof(TQQueue<TInt>), 32);
 
-    ASSERT_EQ(sizeof(TStr), 8);
+    ASSERT_EQ(sizeof(TStr), ShortStringBuffLen + 8);
     ASSERT_EQ(sizeof(TChA), 16);
     ASSERT_EQ(sizeof(TMem), 32);
     ASSERT_EQ(sizeof(TPt<TMem>), 8);
@@ -56,16 +58,18 @@ TEST(sizeof, QMiner) {
     ASSERT_EQ(sizeof(TQm::TRec), 200);
     ASSERT_EQ(sizeof(TQm::TRecSet), 56);
     ASSERT_EQ(sizeof(TQm::TRecFilter), 24);
-    ASSERT_EQ(sizeof(TQm::TAggr), 32);
+    ASSERT_EQ(sizeof(TQm::TAggr), 48);
     /* ASSERT_EQ(sizeof(TQm::TStreamAggr), 32); */
-    ASSERT_EQ(sizeof(TQm::TStreamAggr), 40);
+    ASSERT_EQ(sizeof(TQm::TStreamAggr), 56);
     ASSERT_EQ(sizeof(TQm::TFtrExt), 80);
     ASSERT_EQ(sizeof(TQm::TFtrSpace), 72);
 }
 
 TEST(GetExtraMemberSize, TStr) {
-    const TStr Str = "abc";
-    ASSERT_EQ(TMemUtils::GetExtraMemberSize(Str), Str.Len() + 1);
+    const TStr ShortStr = "abc";
+    const TStr LongStr = "0123456789012345678901234567890123456789";
+    ASSERT_EQ(TMemUtils::GetExtraMemberSize(ShortStr), 0);
+    ASSERT_EQ(TMemUtils::GetExtraMemberSize(LongStr), LongStr.Len() + 1);
 }
 
 TEST(GetMemUsed, TVec) {
@@ -161,11 +165,13 @@ TEST(GetMemUsed, fundamental) {
 }
 
 TEST(GetMemUsed, clazz) {
-    const TStr StrVal = "abc";
+    const TStr ShortStrVal = "abc";
+    const TStr LongStrVal = "0123456789012345678901234567890123456789";
     const TInt IntVal = 4;
     const TFlt FltVal = 5;
 
-    ASSERT_EQ(TMemUtils::GetMemUsed(StrVal), sizeof(TStr) + StrVal.Len() + 1);
+    ASSERT_EQ(TMemUtils::GetMemUsed(ShortStrVal), sizeof(TStr));
+    ASSERT_EQ(TMemUtils::GetMemUsed(LongStrVal), sizeof(TStr) + LongStrVal.Len() + 1);
     ASSERT_EQ(TMemUtils::GetMemUsed(IntVal), sizeof(TInt));
     ASSERT_EQ(TMemUtils::GetMemUsed(FltVal), sizeof(FltVal));
 }

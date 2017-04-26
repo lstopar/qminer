@@ -378,6 +378,22 @@ TEST(TStr, SaveLoad) {
     }
 
     EXPECT_EQ(Alphabet, TStr(TFIn::New(FNm)));
+
+    TIntStrH IntStrH;
+    for (int i = 0; i < 1000; i++) {
+        const TStr Str = "12356sdfsf";
+        IntStrH(i) = Str;
+    }
+
+    {
+        TFOut FOut(FNm, false);
+        IntStrH.Save(FOut);
+    }
+    {
+        // should not throw an exception
+        TFIn FIn(FNm);
+        IntStrH.Load(FIn);
+    }
 }
 
 TEST(TStr, Constructors) {
@@ -574,10 +590,13 @@ TEST(TStr, GetStr) {
 }
 
 TEST(TStr, GetMemUsed) {
-    TStr Str = "abcdef";
+    const int ShortBuffLen = 16;
     TStr Empty = "";
-    EXPECT_EQ(Str.GetMemUsed(), 8 + 7);
-    EXPECT_EQ(Empty.GetMemUsed(), 8);
+    TStr Short = "abcdef";
+    TStr Long = "0123456789012345678901234567890123456789";
+    EXPECT_EQ(Empty.GetMemUsed(), ShortBuffLen + sizeof(char*));
+    EXPECT_EQ(Short.GetMemUsed(), ShortBuffLen + sizeof(char*));
+    EXPECT_EQ(Long.GetMemUsed(), ShortBuffLen + sizeof(char*) + 41);
 }
 
 TEST(TStr, Trunc) {
