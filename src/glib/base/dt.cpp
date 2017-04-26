@@ -922,6 +922,10 @@ TStr::TStr(const TMem& Mem): ShortBuff(), StrPtr(ShortBuff) {
 TStr::TStr(const TSStr& SStr): ShortBuff(), StrPtr(ShortBuff) {
     CopyFromMem(SStr.CStr(), SStr.Len());
 }
+
+TStr::~TStr() {
+    if (IsLong()) { delete[] StrPtr; }
+}
   
 TStr::TStr(const PSIn& SIn): ShortBuff(""), StrPtr(ShortBuff) {
     const int SInLen = SIn->Len();

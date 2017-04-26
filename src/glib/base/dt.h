@@ -538,8 +538,7 @@ public:
   TStr(const TSStr& SStr); // KILL
 
 
-  /// We only delete when not empty
-  ~TStr() { Clr(); }
+  ~TStr();
 
   /// Returns an iterator pointing to the first element in the string.
   TIter BegI() const { return StrPtr; }
