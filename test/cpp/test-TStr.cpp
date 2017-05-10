@@ -306,6 +306,7 @@ TEST(TStr, SaveLoad) {
     const TStr FNm = "test1.txt";
 
     const TStr Empty;
+    const TStr Short = "abc";
     const TStr Alphabet = "abcdefghijklmnoprstuvz";
     TStr Empty1, Alphabet1;
 
@@ -316,6 +317,13 @@ TEST(TStr, SaveLoad) {
     EXPECT_EQ(Empty, Empty1);
     EXPECT_EQ(Empty, TStr(*TFIn::New(FNm)(), false));
     EXPECT_EQ(0, Empty1.Len());
+
+    // is short
+    Short.Save(*TFOut::New(FNm, false)(), false);
+    TStr Short1;    Short1.Load(*TFIn::New(FNm)(), false);
+    EXPECT_EQ(Short, Short1);
+    EXPECT_EQ(Short, TStr(*TFIn::New(FNm)(), false));
+    EXPECT_EQ(3, Short1.Len());
 
     Empty.Save(*TFOut::New(FNm, false)(), false);
     Empty1 = Empty;

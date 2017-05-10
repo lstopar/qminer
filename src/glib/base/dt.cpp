@@ -942,14 +942,14 @@ TStr::TStr(TSIn& SIn, const bool& IsSmall): ShortBuff(""), StrPtr(ShortBuff) {
         if (BfL > 0) {
             Reserve(BfL);
             SIn.LoadBf(StrPtr, BfL);
-            StrPtr[BfL] = 0;
         }
     } else {
         int BfL; SIn.Load(BfL);
-        if (BfL > 0) {
+        if (BfL == 0) { 
+            EAssert(SIn.GetCh() == 0); 
+        } else {
             Reserve(BfL);
-            SIn.LoadBf(StrPtr, BfL);
-            StrPtr[BfL] = 0;
+            SIn.Load(StrPtr, BfL, BfL);
         }
     }
 }
@@ -969,9 +969,7 @@ void TStr::Save(TSOut& SOut, const bool& IsSmall) const {
     } else {
         const int BfL = Len();
         SOut.Save(BfL);
-        if (BfL > 0) {
-            SOut.SaveBf(CStr(), BfL); 
-        }
+        SOut.Save(CStr(), BfL);
     }
 }
 
