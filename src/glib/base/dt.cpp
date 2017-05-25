@@ -887,22 +887,28 @@ TStr TChAIn::GetSNm() const {
 
 /////////////////////////////////////////////////
 // String
-TStr::TStr(): ShortBuff(""), StrPtr(ShortBuff) {}
+TStr::TStr(): ShortBuff(""), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
+}
 
 TStr::TStr(const char* _CStr): ShortBuff(""), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
     if (_CStr == nullptr) { return; }
     CopyFrom(_CStr);
 }
 
 TStr::TStr(const char& Ch): ShortBuff(" "), StrPtr(ShortBuff) {
     StrPtr[0] = Ch;
+    ShortBuff[LenStoreN] = 1;
 }
 
 TStr::TStr(const TStr& Str): ShortBuff(), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
     CopyFrom(Str.CStr());
 }
 
 TStr::TStr(TStr&& Str): ShortBuff(), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
     if (Str.IsLong()) {
         StrPtr = Str.StrPtr;
         Str.StrPtr = Str.ShortBuff;
@@ -912,14 +918,17 @@ TStr::TStr(TStr&& Str): ShortBuff(), StrPtr(ShortBuff) {
 }
 
 TStr::TStr(const TChA& ChA): ShortBuff(), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
     CopyFrom(ChA.CStr());
 }
 
 TStr::TStr(const TMem& Mem): ShortBuff(), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
     CopyFromMem(Mem(), Mem.Len());
 }
 
 TStr::TStr(const TSStr& SStr): ShortBuff(), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
     CopyFromMem(SStr.CStr(), SStr.Len());
 }
 
@@ -928,6 +937,7 @@ TStr::~TStr() {
 }
   
 TStr::TStr(const PSIn& SIn): ShortBuff(""), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
     const int SInLen = SIn->Len();
     if (SInLen > 0) {
         Reserve(SInLen);
@@ -937,6 +947,7 @@ TStr::TStr(const PSIn& SIn): ShortBuff(""), StrPtr(ShortBuff) {
 }
 
 TStr::TStr(TSIn& SIn, const bool& IsSmall): ShortBuff(""), StrPtr(ShortBuff) {
+    ShortBuff[LenStoreN] = 0;
     if (IsSmall) {
         const int BfL = (int) SIn.GetCh();
         if (BfL > 0) {
@@ -1002,7 +1013,7 @@ TStr& TStr::operator=(TStr&& Str) {
 }
 
 TStr& TStr::operator=(const TChA& ChA) {
-    CopyFrom(ChA.CStr());
+    CopyFromMem(ChA.CStr(), ChA.Len());
     return *this;
 }
 
@@ -1034,6 +1045,10 @@ char TStr::GetCh(const int& ChN) const {
     // Assert index not negative, index not >= Length
     Assert((0 <= ChN) && (ChN < Len()) ); 
     return StrPtr[ChN];
+}
+
+int TStr::Len() const {
+    return IsShort() ? (int) ShortBuff[LenStoreN] : Length;
 }
 
 char* TStr::CloneCStr() const {
@@ -2228,6 +2243,9 @@ void TStr::Reserve(const int& NewLen) {
     if (IsShort()) {                // this is a short string
         if (NewLen > ShortLen) {    // short to long string
             StrPtr = new char[NewLen+1];
+            Length = NewLen;
+        } else {
+            ShortBuff[LenStoreN] = (char) NewLen;
         }
     }
     else {                          // this is a long string
@@ -2235,9 +2253,11 @@ void TStr::Reserve(const int& NewLen) {
         
         if (NewLen <= ShortLen) {   // resizing to short string
             StrPtr = ShortBuff;
+            ShortBuff[LenStoreN] = (char) NewLen;
         }
         else {                      // long string of a different size
             StrPtr = new char[NewLen+1];
+            Length = NewLen;
         }
     }
 }

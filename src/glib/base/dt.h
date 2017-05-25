@@ -513,9 +513,15 @@ class TStr{
 public:
   typedef const char* TIter;  //!< Random access iterator.
 private:
-  const static int ShortLen = 15;
+  const static int BuffLen = 16;    // the buffer must hold the terminating 0 and the length
+  const static int LenStoreN = BuffLen - 1;
+  const static int ShortLen = BuffLen - 2;
   /// a buffer used to store short strings shorter than ShortLen
-  char ShortBuff[ShortLen+1];    // leave space for the terminating 0
+  /* char ShortBuff[BuffLen]; */
+  union {
+      char ShortBuff[BuffLen];
+      int Length;
+  };
   /// points to where the c-style string is stored
   char* StrPtr;
 
@@ -609,7 +615,7 @@ public:
   /// Get last character in string (before null terminator)
   char LastCh() const {return GetCh(Len()-1);}
   /// Get String Length (null terminator not included)
-  int Len() const { return strlen(StrPtr); }
+  int Len() const;
   /// Check if this is an empty string
   bool Empty() const;
   /// Deletes the char pointer if it is not nullptr. (not thread safe)
