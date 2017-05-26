@@ -513,7 +513,7 @@ class TStr{
 public:
   typedef const char* TIter;  //!< Random access iterator.
 private:
-  const static int ShortLen = 15;
+  const static int ShortLen = 7;
   /// a buffer used to store short strings shorter than ShortLen
   char ShortBuff[ShortLen+1];    // leave space for the terminating 0
   /// points to where the c-style string is stored
