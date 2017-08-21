@@ -21,6 +21,147 @@ namespace TQuant {
             return os;
         }
 
+
+        ////////////////////////////////////
+        /// GK - Summary
+        template <typename TSummaryFun>
+        TUtils::TGkVecSummary<TSummaryFun>::TGkVecSummary(const double& _Eps):
+                Eps(_Eps) {}
+
+        template <typename TSummaryFun>
+        TUtils::TGkVecSummary<TSummaryFun>::TGkVecSummary(TSIn& SIn):
+                Summary(SIn),
+                SampleN(SIn),
+                Eps(SIn),
+                UseBands(SIn) {}
+
+        template <typename TSummaryFun>
+        void TUtils::TGkVecSummary<TSummaryFun>::Save(TSOut& SOut) const {
+            Summary.Save(SOut);
+            SampleN.Save(SOut);
+            Eps.Save(SOut);
+            UseBands.Save(SOut);
+        }
+
+        template <typename TSummaryFun>
+        double TUtils::TGkVecSummary<TSummaryFun>::Query(const double& PVal) const {
+            if (Summary.Empty()) { return 0; }
+
+            const double MnRankThreshold = double(SampleN)*(PVal - Eps);
+
+            uint64 CurrMnRank = 0;
+            int TupleN = 0;
+            while (TupleN < Summary.Len()) {
+                const TTuple& Tuple = Summary[TupleN];
+
+                CurrMnRank += Tuple.GetTupleSize();
+
+                if (CurrMnRank >= MnRankThreshold) {
+                    return Tuple.GetMxVal();
+                }
+
+                ++TupleN;
+            }
+
+            return Summary.Last().GetMxVal();
+        }
+
+        template <typename TSummaryFun>
+        void TUtils::TGkVecSummary<TSummaryFun>::Query(const TFltV& PValV, TFltV& QuantV) const {
+            if (QuantV.Len() != PValV.Len()) { QuantV.Gen(PValV.Len(), PValV.Len()); }
+            if (Summary.Empty() || PValV.Empty()) { return; }
+
+            uint64 CurrMnRank = 0;
+            int PValN = 0;
+
+            auto TupleIt = Summary.begin();
+            const auto EndIt = Summary.end();
+
+            while (PValN < PValV.Len()) {
+                const TFlt& PVal = PValV[PValN];
+                const double MnRankThreshold = double(SampleN)*(PVal - Eps);
+
+                while (TupleIt != EndIt) {
+                    const TTuple& Tuple = *TupleIt;
+                    const TUInt& TupleSize = Tuple.GetTupleSize();
+
+                    CurrMnRank += TupleSize;
+
+                    if (CurrMnRank >= MnRankThreshold) {
+                        QuantV[PValN] = Tuple.GetMxVal();
+                        CurrMnRank -= TupleSize;
+                        break;
+                    }
+
+                    ++TupleIt;
+                }
+
+                if (TupleIt == EndIt) {
+                    QuantV[PValN] = Summary.Last().GetMxVal();
+                }
+
+                ++PValN;
+            }
+        }
+
+        template <typename TSummaryFun>
+        void TUtils::TGkVecSummary<TSummaryFun>::Insert(const double& Val) {
+            // binary search to find the first tuple with value greater than val
+            // this is where we will insert the new value
+            const auto Cmp = [&](const TTuple& Tup, const double& Val) { return Tup.GetMxVal() < Val; };
+            const auto ValIt = std::lower_bound(Summary.begin(), Summary.end(), Val, Cmp);
+
+            const int NewValN = int(ValIt - Summary.begin());
+
+            // if Val is the smallest or largest element, we must insert <v,1,0>
+            if (NewValN == 0 || NewValN == Summary.Len()) {
+                Summary.Ins(NewValN, TTuple(Val));
+            }
+            else {
+                // let i be the index of the first tuple with greather vi, then
+                // insert tuple <v,1,delta_i + g_i - 1>
+                TTuple& RightTuple = Summary[NewValN];
+
+                const uint MxTupleUncert = TSummaryFun::GetMxTupleUncert(Eps, SampleN);
+                if (1 + RightTuple.GetTotalUncert() <= MxTupleUncert) {
+                    // the right tuple can swallow the new tuple
+                    RightTuple.SwallowOne();
+                } else {
+                    // we must insert the new tuple
+                    Summary.Ins(NewValN, TTuple(Val, RightTuple));
+                }
+            }
+
+            ++SampleN;
+        }
+
+        template <typename TSummaryFun>
+        void TUtils::TGkVecSummary<TSummaryFun>::Compress() {
+            const uint ErrRange = TSummaryFun::GetMxTupleUncert(Eps, SampleN);
+
+            // go throught the tuples and merge the ones you can
+            // the first and last tuple should never get merged
+            for (int TupleN = Summary.Len() - 3; TupleN >= 1; TupleN--) {
+                // delete all descendants of i and i itself
+                // the descendants of i are the ones with Band_k < Band_i and
+                // the children of i are the set {k_1,...,k_m | k_{j+1}=k_j+1,band(k_j)>=band(k_{j+1}),band(i)>band(k_1)}
+                const TTuple& CurrTuple = Summary[TupleN];
+                TTuple& NextTuple = Summary[TupleN+1];
+
+                if (UseBands) {
+                    const int CurrBand = TSummaryFun::GetBand(Eps, SampleN, CurrTuple, 0);  // TODO MnRank
+                    const int NextBand = TSummaryFun::GetBand(Eps, SampleN, NextTuple, 0);  // TODO MnRank
+                    if (CurrBand > NextBand) { continue; }
+                }
+
+                if (CurrTuple.GetTupleSize() + NextTuple.GetTotalUncert() <= ErrRange) {
+                    // merge the two tuples
+                    NextTuple.Swallow(CurrTuple);
+                    Summary.Del(TupleN);
+                }
+            }
+        }
+
         //////////////////////////////////////////////
         /// Exponential Histogram Base
         template <typename TInterval>

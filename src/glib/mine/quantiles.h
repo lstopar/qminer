@@ -181,7 +181,6 @@ namespace TQuant {
                 virtual void OnItemsDeleted(const uint64&) = 0;
             };
 
-            /* TExpHistBase() {} */
             /// Sets the time window and error. The (approximate) count
             /// of the elements in time window [curr_time, curr_time - window)
             /// in the bin is at most (1 + eps)*real_count.
@@ -577,7 +576,55 @@ namespace TQuant {
         };
 
         ///////////////////////////////////
+        /// Summary specialization functions for
+        /// the basic GK algorithm
+        class TGkSummaryFun {
+        public:
+            static uint GetMxTupleUncert(const double& Eps, const uint64& SampleN) {
+                return (uint) (2*Eps*double(SampleN));
+            }
+
+            template <typename TTuple>
+            static int GetBand(const double& Eps, const uint64& SampleN,
+                    const TTuple& Tuple, const uint64&) {
+                // the band groups tuples by their capacity
+                // it is defined as alpha, such that:
+                // 2^(alpha-1) + mod(p,2^(alpha-1)) <= capacity < 2^alpha + mod(p,2^alpha)
+                // where capacity is defined as floor(2*eps*n) - delta_i
+
+                const uint64 MxUncert = (uint64) GetMxTupleUncert(Eps, SampleN);
+                const uint UncertRight = Tuple.GetUncertRight();
+                const uint64 Capacity = MxUncert - UncertRight;
+
+                // Special case: the first 1 / (2*eps) tuples (with d_i == 0) are in a band of their own
+                if (UncertRight == 0) { return TInt::Mx; }
+                // Special case: we define band 0 to simply be MxUncert
+                if (UncertRight == MxUncert) { return 0; }
+
+                const auto TestBand = [&](const int& Band) {
+                    return TMath::Pow2(Band-1) + (MxUncert % TMath::Pow2(Band-1)) <= Capacity &&
+                           Capacity < TMath::Pow2(Band) + (MxUncert % TMath::Pow2(Band));
+                };
+
+                const int CandidateBand = (int) TMath::Log2((double) Capacity);
+                if (TestBand(CandidateBand)) {
+                    return CandidateBand;
+                }
+                else if (TestBand(CandidateBand+1)) {
+                    return CandidateBand+1;
+                }
+                else {
+                    // fail horribly and think about what you did
+                    const TStr MsgStr = "Could not find the band of tuple: <" + TFlt::GetStr(Tuple.GetMxVal()) + "," + TUInt::GetStr(Tuple.GetTupleSize()) + "," + TInt::GetStr(Tuple.GetUncertRight()) + ">, p=" + TInt::GetStr(MxUncert) + ", candidate band = " + TInt::GetStr(CandidateBand) + "!";
+                    FailR(MsgStr.CStr());
+                    return -1;
+                }
+            }
+        };
+
+        ///////////////////////////////////
         /// GK summary based on a Glib vector
+        template <typename TSummaryFun>
         class TGkVecSummary {
             using TTuple = TGkMnUncertTuple;
             using TSummary = TVec<TTuple>;
@@ -607,11 +654,20 @@ namespace TQuant {
             }
 
         private:
-            uint GetMxTupleUncert() const;
-            int GetBand(const TTuple&) const;
 
             TSummary Summary {};
             TUInt64 SampleN {uint64(0)}; // current size of the summary, initializes to 0
+            TFlt Eps;
+            TBool UseBands {true};
+        };
+
+        class TBiasedGkVecSummary {
+            using TTuple = TGkMnUncertTuple;
+            using TSummary = TVec<TTuple>;
+
+        private:
+            TSummary Summary {};
+            TUInt64 SampleN {uint64(0)};
             TFlt Eps;
             TBool UseBands {true};
         };
@@ -663,7 +719,7 @@ namespace TQuant {
         uint32 GetCompressInterval() const;
         bool ShouldAutoCompress() const;
 
-        using TSummary = TUtils::TGkVecSummary;
+        using TSummary = TUtils::TGkVecSummary<TUtils::TGkSummaryFun>;
 
         TSummary Summary;
         TFlt Eps;
